@@ -1,0 +1,10 @@
+{
+  "name":"ai-camera-dashboard",
+  "private":true,
+  "type":"module",
+  "scripts":{
+    "test":"node --test tests/js/*.test.mjs",
+    "format:check":"prettier --check static/**/*.js static/*.html static/*.css"
+  },
+  "devDependencies":{"prettier":"3.6.2"}
+}

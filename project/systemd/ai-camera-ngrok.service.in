@@ -1,0 +1,21 @@
+[Unit]
+Description=ngrok public tunnel for AI Camera dashboard
+After=network-online.target ai-camera.service
+Wants=network-online.target
+Requires=ai-camera.service
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@NGROK_HOME@
+ExecStart=@NGROK_BIN@ http 8000 --log=stdout
+Restart=always
+RestartSec=5
+Environment=HOME=@HOME@
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

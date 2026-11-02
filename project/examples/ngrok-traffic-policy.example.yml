@@ -1,0 +1,8 @@
+on_http_request:
+  - actions:
+      - type: basic-auth
+        config:
+          realm: ai-camera-team
+          credentials:
+            - "team:REPLACE_WITH_YOUR_PRIVATE_PASSWORD"
+          enforce: true

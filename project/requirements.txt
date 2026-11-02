@@ -1,0 +1,9 @@
+fastapi>=0.115.12,<1
+uvicorn>=0.34,<1
+python-multipart>=0.0.20,<1
+python-dotenv>=1.0,<2
+# MediaPipe 1.1.1, cv2 5.0.0, numpy: dùng bản đã có trong ~/ai-camera/.venv.
+# Không cần FPT, edge-tts, Supertonic, Piper hoặc soundfile trên Pi để phát clip.
+
+Pillow>=11,<14
+httpx>=0.28,<1

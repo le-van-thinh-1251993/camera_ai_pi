@@ -1,0 +1,6 @@
+{
+  "device_auth_batch_cloud": true,
+  "stable_two_seconds": true,
+  "shared_wav_tft_ack": true,
+  "physical_hardware_tested": false
+}

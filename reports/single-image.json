@@ -1,0 +1,7 @@
+{
+  "single_image": true,
+  "cloud_commit_and_dashboard_result": true,
+  "no_browser_tft_upload": true,
+  "processing_seconds_this_windows_test": 3.72,
+  "not_pi_benchmark": true
+}

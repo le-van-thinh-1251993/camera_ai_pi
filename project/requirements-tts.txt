@@ -1,0 +1,2 @@
+# Optional only: prerecorded speech works without these packages or Internet.
+edge-tts>=7,<8

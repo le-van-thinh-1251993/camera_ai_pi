@@ -1,0 +1,10 @@
+{
+  "upload_one_voice": true,
+  "upload_height": 768,
+  "auto_cloud_confirmed_stopped": true,
+  "auto_camera_posts": 1,
+  "phone_height": 768,
+  "manual_cloud_confirmed_stopped": true,
+  "mobile_width": 390,
+  "js_errors": 0
+}

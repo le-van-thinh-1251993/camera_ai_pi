@@ -1,0 +1,9 @@
+{
+  "upload_supabase_only": true,
+  "auto_two_seconds_shared_voice": true,
+  "unstable_no_speech_no_screen": true,
+  "bad_image_permanent_first_attempt": true,
+  "auth_required_health_minimal_no_lan": true,
+  "retention_keeps_shared_voice": true,
+  "status": "passed"
+}

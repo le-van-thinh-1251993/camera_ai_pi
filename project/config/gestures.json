@@ -1,0 +1,15 @@
+{
+  "Count_1": "Bạn đang giơ một ngón tay.",
+  "Count_2": "Bạn đang giơ hai ngón tay.",
+  "Count_3": "Bạn đang giơ ba ngón tay.",
+  "Count_4": "Bạn đang giơ bốn ngón tay.",
+  "Count_5": "Bạn đang giơ năm ngón tay.",
+  "Count_6": "Bạn đang giơ sáu ngón tay.",
+  "Count_7": "Bạn đang giơ bảy ngón tay.",
+  "Count_8": "Bạn đang giơ tám ngón tay.",
+  "Count_9": "Bạn đang giơ chín ngón tay.",
+  "Count_10": "Bạn đang giơ mười ngón tay.",
+  "Unknown": "Tôi chưa nhận diện được cử chỉ. Bạn vui lòng thử lại nhé!",
+  "No_hand": "Tôi chưa nhận diện được cử chỉ. Bạn vui lòng thử lại nhé!",
+  "Greeting": "Xin chào!"
+}

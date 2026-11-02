@@ -1,0 +1,21 @@
+Bản này gồm:
+- URL Supabase.
+- Secret/service key.
+- Device UID và worker config.
+- API dashboard mặc định 123456 nếu máy mới chưa có .env.
+- Tự khởi động dashboard local.
+- Tự khởi động ngrok nếu Pi có:
+  - /usr/bin/ngrok, hoặc
+  - ~/ngrok-demo/ngrok.
+Cài trên Pi:
+Powershell: scp "C:\Users\minh.nl\Documents\Codex\2026-10-22\referenced-chatgpt-conversation-this-is-an\outputs\ai-camera-cloud-v6-single-demo-private.zip" lethinh@192.168.0.94:~/
+Powershell: unzip -o ~/ai-camera-cloud-v6-single-demo-private.zip -d ~/ai-camera-cloud-v6-demo
+bash ~/ai-camera-cloud-v6-demo/install_pi.sh
+Sau khi Pi khởi động:
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:4040/api/tunnels
+sudo systemctl status ai-camera ai-camera-ngrok --no-pager
+Lưu ý: ZIP này chứa secret Supabase thật, chỉ dùng nội bộ. Không gửi lên GitHub, Zalo nhóm hoặc chia sẻ công khai.
+
+    
+8:53 AM

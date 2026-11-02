@@ -1,0 +1,1 @@
+12 file do người dùng cung cấp từ D:/Thịnh/Voice. Đã chuyển MP3 mang đuôi .wav sang WAV PCM16 chuẩn, không đổi giọng/tốc độ. manifest.json ánh xạ Count_1–Count_10, Greeting và Unknown/No_hand. Hai mã Unknown/No_hand dùng chung clip chuanhandiencuchi.wav. Giữ bản gốc trên máy người dùng.

@@ -1,0 +1,10 @@
+.env
+.venv/
+data/
+__pycache__/
+*.pyc
+systemd/ai-camera.service
+.env.cloud
+private/
+backups/
+firmware/**/secrets.h

@@ -1,0 +1,23 @@
+# Secrets and local runtime state
+.env
+.env.*
+!.env.example
+!.env.cloud.example
+**/secrets.h
+**/data/
+**/backups/
+**/.venv/
+**/__pycache__/
+**/*.pyc
+
+# Local/private bundles and generated artifacts
+*.zip
+deploy-*/
+private/
+*.db
+*.sqlite3
+*.log
+
+# OS/editor files
+desktop.ini
+.DS_Store

@@ -1,0 +1,13 @@
+{
+  "python_unit_tests": 8,
+  "javascript_tests": 4,
+  "syntax": "passed",
+  "ruff": "passed",
+  "prettier": "passed",
+  "installer_preserve_keys_and_rollback": "passed",
+  "firmware_esp32s3_all_driver_branches": "compiled",
+  "firmware_flash_bytes": 1255163,
+  "firmware_global_ram_bytes": 59524,
+  "target_pi_python_313_execution": "run verify_cloud.py after installing on Pi",
+  "physical_hardware_tested": false
+}

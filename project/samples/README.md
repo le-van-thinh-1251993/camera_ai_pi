@@ -1,0 +1,1 @@
+Bốn ảnh tay từ tài nguyên kiểm thử MediaPipe chính thức; xem THIRD_PARTY.md. no_hand.png tự tạo. Ảnh victory_back do người dùng cung cấp có nguồn quyền sử dụng chưa xác minh, không phát hành lại trong gói v6.

@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Gesture to Speech</title>
+    <link rel="stylesheet" href="/static/style.css?v=cloud-v6-camera-upload-2" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <small>CỬ CHỈ · KẾT NỐI · GIAO TIẾP</small>
+        <h1>Gesture to Speech</h1>
+      </div>
+      <div class="header-actions">
+        <button id="theme" class="secondary" type="button" aria-label="Đổi sáng tối">☀ / ☾</button
+        ><span id="health" role="status">Đang kiểm tra hệ thống…</span
+        ><button id="settings-open" class="secondary" type="button" aria-label="Mở cài đặt kết nối">
+          ⚙️
+        </button>
+      </div>
+    </header>
+    <main>
+      <section id="preview-panel" aria-label="Nguồn hình ảnh">
+        <div class="tabs" role="tablist" aria-label="Chọn nguồn nhận diện">
+          <button id="tab-upload" role="tab" aria-selected="true" aria-controls="panel-upload">
+            Tải ảnh lên
+          </button>
+          <button
+            id="tab-camera"
+            role="tab"
+            aria-selected="false"
+            aria-controls="panel-camera"
+            tabindex="-1"
+          >
+            Camera trực tiếp
+          </button>
+        </div>
+        <div class="preview-heading">
+          <h2 id="preview-title">Ảnh nhận diện · Supabase</h2>
+          <button id="preview-size" class="secondary" type="button" aria-pressed="false">
+            Phóng to ảnh
+          </button>
+        </div>
+        <div class="preview">
+          <div id="placeholder">Chọn ảnh hoặc bật camera để bắt đầu</div>
+          <img id="photo" alt="Ảnh đang nhận diện" hidden />
+          <video
+            id="camera-video"
+            class="capture-video"
+            autoplay
+            muted
+            playsinline
+            webkit-playsinline
+            x5-playsinline
+            disablepictureinpicture
+            disableremoteplayback
+            aria-hidden="true"
+            tabindex="-1"
+          ></video
+          ><canvas id="live-preview" hidden aria-label="Camera trực tiếp trong khung hình"></canvas>
+          <canvas id="marks" aria-hidden="true"></canvas>
+        </div>
+        <p id="connection" role="status">Đang kết nối nhận kết quả…</p>
+        <details class="count-options">
+          <summary>Cách đếm bàn tay</summary>
+          <label
+            ><input id="count-all" type="checkbox" /> Cộng tất cả tay nhìn thấy (dùng khi đếm 6–10
+            ngón)</label
+          >
+        </details>
+        <div id="panel-upload" role="tabpanel" aria-labelledby="tab-upload">
+          <form id="form">
+            <label for="file">Chọn ảnh bàn tay (JPEG / PNG, tối đa 15 MB)</label
+            ><input id="file" type="file" accept="image/jpeg,image/png" required /><button
+              id="upload-button"
+              type="submit"
+            >
+              Nhận diện ảnh
+            </button>
+          </form>
+          <div class="focus-tools">
+            <button id="focus-select" type="button" class="secondary" disabled>
+              Chọn tay trong ảnh</button
+            ><span id="focus-status">Ảnh nhiều người: chọn vùng tay cần đếm.</span>
+          </div>
+        </div>
+        <div id="panel-camera" role="tabpanel" aria-labelledby="tab-camera" hidden>
+          <details id="camera-options" open>
+            <summary>Nguồn camera và chế độ</summary>
+            <label for="camera-source">Nguồn camera</label>
+            <select id="camera-source">
+              <option value="device">Camera điện thoại / máy này · Cloud</option>
+              <option value="cloud">ESP32 · Supabase Cloud</option>
+            </select>
+            <div id="phone-controls">
+              <label for="phone-mode">Chế độ camera thiết bị này</label
+              ><select id="phone-mode" aria-label="Chế độ camera Auto hoặc Manual">
+                <option value="auto">Auto · Giữ cử chỉ 2 giây</option>
+                <option value="manual">Manual · Dừng hình và nhận diện</option>
+              </select>
+              <select id="phone-facing" aria-label="Chọn camera điện thoại">
+                <option value="environment">Camera sau</option>
+                <option value="user">Camera trước</option>
+              </select>
+            </div>
+            <div id="device-controls" hidden>
+              <label for="device-id">Thiết bị ESP32</label
+              ><input
+                id="device-id"
+                value="esp32-01"
+                maxlength="32"
+                pattern="[A-Za-z0-9_-]{1,32}"
+              />
+              <p id="device-status" role="status">Đang chờ kết nối thiết bị.</p>
+              <div class="device-modes" role="group" aria-label="Chế độ ESP32">
+                <button type="button" id="device-auto" aria-pressed="false">
+                  Auto · Giữ 2 giây</button
+                ><button type="button" id="device-manual" class="secondary" aria-pressed="false">
+                  Manual · Bấm nhận diện
+                </button>
+              </div>
+              <div class="device-actions">
+                <button id="device-start" type="button">Tiếp tục camera</button
+                ><button id="device-stop" class="secondary" type="button">
+                  Dừng / cố định hình</button
+                ><button id="device-capture" type="button">Nhận diện hình đã dừng</button>
+              </div>
+              <details class="device-extra">
+                <summary>Thêm thao tác trên ESP32</summary>
+                <div class="device-actions">
+                  <button id="device-home" class="secondary" type="button">Home / Menu</button
+                  ><button id="device-replay" class="secondary" type="button">
+                    Đọc lại trên loa ESP32</button
+                  ><button id="device-greeting" class="secondary" type="button">
+                    Lời chào trên ESP32
+                  </button>
+                </div>
+              </details>
+              <p id="device-error" role="alert"></p>
+            </div>
+          </details>
+          <div id="phone-manual-controls" class="device-actions" hidden>
+            <button id="phone-freeze" class="secondary" type="button" disabled>
+              Dừng / tiếp tục hình</button
+            ><button id="phone-capture" type="button" disabled>Nhận diện hình đã dừng</button>
+          </div>
+          <div id="camera-actions" class="camera-controls">
+            <button id="camera-start" type="button">Bật camera</button
+            ><button id="camera-stop" class="secondary" type="button" disabled>Dừng</button>
+          </div>
+          <p id="camera-status" role="status">Camera đang tắt.</p>
+          <p class="hint">
+            Giữ cùng một cử chỉ khoảng 2 giây để xác nhận. Đổi cử chỉ hoặc bỏ tay khỏi khung hình
+            trước lần đọc tiếp theo.
+          </p>
+          <progress
+            id="hold-progress"
+            max="2"
+            value="0"
+            aria-label="Thời gian giữ cử chỉ"
+          ></progress>
+          <p id="hold-status" role="status">Chưa có cử chỉ để xác nhận.</p>
+        </div>
+        <p id="error" role="alert"></p>
+      </section>
+      <section class="output" aria-label="Kết quả giao tiếp">
+        <p id="processing" role="status" hidden>Đang nhận diện ảnh…</p>
+        <div id="result-content" aria-live="polite" aria-atomic="true">
+          <div class="result-label">Kết quả nhận diện</div>
+          <div id="gesture" class="empty">
+            Hãy đưa cử chỉ vào đúng khung hình camera hoặc gửi ảnh để AI nhận diện
+          </div>
+          <div class="result-label meaning-label">Ý nghĩa</div>
+          <h2 id="phrase">Chưa nhận diện được cử chỉ</h2>
+        </div>
+        <button id="resume-round" type="button" hidden>Nhận diện tiếp</button>
+        <div class="audio-controls">
+          <button id="speak" type="button" disabled>▶ Đọc lại</button
+          ><button id="greeting" class="secondary" type="button">Phát lời chào</button>
+        </div>
+        <label class="switch"
+          ><input id="auto" type="checkbox" role="switch" checked /><span>Tự động đọc</span></label
+        >
+        <p class="hint">Âm thanh phát trên thiết bị đang mở trang. Nếu bị chặn, bấm “Đọc lại”.</p>
+        <details class="technical">
+          <summary>Chi tiết nhận diện</summary>
+          <p id="confidence">Độ tin cậy: —</p>
+          <p id="hand-summary"></p>
+          <p id="duration">Thời gian xử lý: —</p>
+          <p id="speech-status" class="hint"></p>
+        </details>
+      </section>
+      <section class="wide history">
+        <details>
+          <summary>Lịch sử gần đây</summary>
+          <p class="hint">
+            Ảnh camera được nhận diện theo từng khung hình; câu nói chỉ được xác nhận sau khi giữ ổn
+            định.
+          </p>
+          <p id="history-empty">Chưa có kết quả nhận diện.</p>
+          <div class="table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Thời gian</th>
+                  <th>Nguồn</th>
+                  <th>Cử chỉ</th>
+                  <th>Ý nghĩa</th>
+                  <th>Độ tin cậy</th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+        </details>
+      </section>
+    </main>
+    <dialog id="settings-dialog" aria-labelledby="settings-title">
+      <div class="dialog-heading">
+        <h2 id="settings-title">Cài đặt kết nối</h2>
+        <button id="settings-close" class="secondary" aria-label="Đóng cài đặt">✕</button>
+      </div>
+      <p class="hint">
+        Dashboard yêu cầu API_KEY trong file .env trên Pi. Đây không phải anon key của Supabase.
+        Khóa chỉ giữ trong tab hiện tại.
+      </p>
+      <label for="key">Khóa kết nối (API key)</label
+      ><input id="key" type="password" autocomplete="off" placeholder="Nhập khóa kết nối" />
+      <button id="connect" type="button">Kết nối lại</button>
+      <p id="settings-status" role="status"></p>
+    </dialog>
+    <script type="module" src="/static/app.js?v=cloud-v6-camera-upload-2"></script>
+  </body>
+</html>
