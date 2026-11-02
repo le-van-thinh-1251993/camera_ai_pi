@@ -170,6 +170,7 @@ static void finalResult(JsonDocument &job) {
   String screenPath = localSubmitted
     ? (job["result"]["screen_path"] | "")
     : (job["screen_path"] | "");
+  drawResultView(job["result"]["gesture"] | "Unknown", value.text);
   audioPath = job["audio_path"] | "";
   if (lastConsumed != id) {
     lastConsumed = id; preferences.putString("consumed", id);
@@ -215,7 +216,7 @@ static void handleAction(const Action &action) {
   if (name == "replay") { playAudio(audioPath); return; }
   if (name == "greeting") { if (cloud.login()) playAudio(String(SB_UID) + "/greeting/voice.wav"); return; }
   resetRequest(); value.hold = 0; value.resultId = "";
-  if (name == "home") { value.view = "home"; value.running = false; drawDisplayDemo(); }
+  if (name == "home") { value.view = "home"; value.running = false; drawGreetingScreen(); }
   else if (name == "stop") { value.view = "paused"; value.running = false; }
   else if (name == "auto") { menuOpen = false; value.mode = name; value.view = "preview"; value.running = true; }
   else if (name == "manual") { menuOpen = false; value.mode = name; value.view = "manual"; value.running = false; }

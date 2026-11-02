@@ -52,8 +52,9 @@ class CloudRuntime:
 
         self.controls = DeviceControl(self)
         self.retention = CloudRetention(self)
-        self.offline_retries = {}
+        self.outbox_retry_after = {}
         self.greeting_uploaded = False
+        self.greeting_retry_after = 0.0
 
     async def call(self, method, *args, **kwargs):
         return await asyncio.to_thread(method, *args, **kwargs)
@@ -311,11 +312,16 @@ class CloudRuntime:
             self.client.close()
 
     async def ensure_greeting(self):
-        if not self.client or not self.lan_owner_id:
+        if not self.client:
+            return
+        if not self.lan_owner_id:
+            log.warning("Greeting upload skipped: CLOUD_DEVICE_UID is missing")
+            self.greeting_uploaded = True
             return
         path = Path(__file__).resolve().parents[1] / "recordings" / "xinchao.wav"
         if not path.is_file():
             log.warning("Greeting audio is missing: %s", path)
+            self.greeting_uploaded = True
             return
         await self.call(
             self.client.upload,
@@ -364,16 +370,24 @@ class CloudRuntime:
             job = None
             self.wake.clear()
             try:
-                await self.sync_local_outbox()
+                if self.state["connected"]:
+                    await self.sync_local_outbox()
                 rows = await self.call(
                     self.client.rpc, "ai_claim_v6", {"p_worker": self.worker, "p_seconds": 120}
                 )
+                was_connected = self.state["connected"]
                 self.state.update(connected=True, last_error=None)
-                if not self.greeting_uploaded:
+                if not was_connected:
+                    self.outbox_retry_after.clear()
+                if (
+                    not self.greeting_uploaded
+                    and time.monotonic() >= self.greeting_retry_after
+                ):
                     try:
                         await self.ensure_greeting()
                     except Exception as exc:
                         log.warning("Greeting upload failed: %s", type(exc).__name__)
+                        self.greeting_retry_after = time.monotonic() + 300
                 if rows:
                     job = rows[0]
                     self.activity()
@@ -418,10 +432,11 @@ class CloudRuntime:
 
     async def sync_local_outbox(self):
         """Publish completed offline results after Supabase reconnects."""
+        now = time.monotonic()
         excluded = {
             request_id
-            for request_id, attempts in self.offline_retries.items()
-            if attempts >= 5
+            for request_id, retry_after in self.outbox_retry_after.items()
+            if retry_after > now
         }
         for row in await self.call(self.jobs.pending, excluded):
             result = row.get("result") or {}
@@ -455,12 +470,17 @@ class CloudRuntime:
                 )
             except Exception as exc:
                 status = exc.status if isinstance(exc, CloudError) else 0
-                if status != 409:
-                    self.offline_retries[row["id"]] = self.offline_retries.get(row["id"], 0) + 1
+                if status == 409:
+                    pass
+                else:
+                    self.outbox_retry_after[row["id"]] = time.monotonic() + (
+                        300 if status == 0 or status >= 500 else 30
+                    )
+                    if isinstance(exc, CloudError) and status == 0:
+                        self.state.update(connected=False, last_error=exc.code)
                     log.warning(
-                        "Offline outbox row %s failed (attempt %s): %s",
+                        "Offline outbox row %s deferred until reconnect/retry window: %s",
                         row["id"],
-                        self.offline_retries[row["id"]],
                         getattr(exc, "code", type(exc).__name__),
                     )
                     continue
@@ -506,13 +526,16 @@ class CloudRuntime:
                     },
                 )
                 await self.call(self.jobs.mark_synced, row["id"], row["updated"])
-                self.offline_retries.pop(row["id"], None)
+                self.outbox_retry_after.pop(row["id"], None)
                 self.state["offline_synced"] = self.state.get("offline_synced", 0) + 1
             except Exception as exc:
-                self.offline_retries[row["id"]] = self.offline_retries.get(row["id"], 0) + 1
+                self.outbox_retry_after[row["id"]] = time.monotonic() + (
+                    300 if isinstance(exc, CloudError) else 30
+                )
+                if isinstance(exc, CloudError) and exc.status == 0:
+                    self.state.update(connected=False, last_error=exc.code)
                 log.warning(
-                    "Offline outbox row %s failed (attempt %s): %s",
+                    "Offline outbox row %s deferred after result publish failure: %s",
                     row["id"],
-                    self.offline_retries[row["id"]],
                     type(exc).__name__,
                 )

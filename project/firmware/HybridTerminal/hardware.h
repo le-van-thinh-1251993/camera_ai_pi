@@ -155,9 +155,11 @@ static bool validatePins() {
   auto add=[&](int pin, bool required, bool output) {
     if(pin<0) {if(required) ok=false;return;}
     if(!GPIO_IS_VALID_GPIO(pin) || (output && !GPIO_IS_VALID_OUTPUT_GPIO(pin)) ||
-       (pin>=26 && pin<=32) || (pin>=35 && pin<=37) ||
-       pin==0 || pin==3 || pin==19 || pin==20 || pin==45 || pin==46) {
+       (pin>=26 && pin<=32) || (pin>=35 && pin<=37)) {
       ok=false;return;
+    }
+    if (pin==0 || pin==3 || pin==45 || pin==46 || pin==19 || pin==20) {
+      Serial.printf("WARNING: GPIO %d is a strapping/USB pin; verify board boot and USB use.\n", pin);
     }
     for(size_t i=0;i<count;i++) if(used[i]==pin) ok=false;
     if(count<64) used[count++]=pin; else ok=false;
