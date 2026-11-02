@@ -17,10 +17,9 @@ static uint8_t *cachedJpeg = nullptr, *screenJpeg = nullptr;
 static size_t cachedSize = 0, screenSize = 0;
 static uint32_t cachedAt = 0;
 static CapturedFrame frames[AUTO_FRAMES];
-static std::atomic<bool> cancelAudio{false}, menuOpen{true}, redrawMenu{false};
+static std::atomic<bool> cancelAudio{false}, menuOpen{true};
 static std::atomic<bool> screenPresented{false};
 static bool newScreen = false, hardwareOk = false;
-static int menuIndex = 0;
 // These strings and protocol state are owned exclusively by the network task.
 static String pendingId, lastConsumed, audioPath, lastControl;
 static unsigned frameCount = 0, targetFrames = 0, attempt = 0;
@@ -31,7 +30,7 @@ static JsonDocument localJob;
 static bool manualPersisted = false;
 static uint32_t pollAt = 0, syncAt = 0;
 static uint32_t captureStarted = 0;
-static uint32_t greetingRetryAt = 0;
+static uint32_t requestStarted = 0;
 static JsonDocument ackQueue;
 
 static uint8_t *allocateBytes(size_t bytes) {
@@ -90,6 +89,7 @@ static void beginCapture(bool automatic, bool newRound) {
   pendingId = uuid(); frameCount = 0; targetFrames = 1;
   collecting = true; collectingAuto = automatic; submitted = false;
   captureStarted=millis();
+  requestStarted=0;
   Snapshot value = snapshot(); value.resultId = ""; value.hold = 0;
   value.view = "preview"; value.running = automatic; setState(value);
 }
@@ -102,7 +102,8 @@ static void captureStep() {
     Snapshot value=snapshot();value.hold=(millis()-captureStarted)/1000.f;setState(value);return;
   }
   xSemaphoreTake(jpegMutex, portMAX_DELAY);
-  bool ready = cachedSize && (frameCount == 0 || uint32_t(cachedAt - frames[0].captured) >= frameCount * 1000);
+  bool ready = cachedSize && (millis() - cachedAt < 500) &&
+               (frameCount == 0 || uint32_t(cachedAt - frames[0].captured) >= frameCount * 1000);
   if (ready) {
     frames[frameCount].size = cachedSize; frames[frameCount].captured = cachedAt;
     memcpy(frames[frameCount].data, cachedJpeg, cachedSize); frameCount++;
@@ -151,19 +152,35 @@ static bool submitLocalRequest() {
   return true;
 }
 static bool playAudio(const String &path) {
-  auto wav = allocateBytes(MAX_WAV_BYTES); size_t length = 0; cancelAudio = false;
+  auto wav = allocateBytes(MAX_WAV_BYTES); size_t length = 0;
+  if (!wav) return false;
+  cancelAudio = false;
   bool downloaded = localSubmitted
     ? cloud.lanAudio(DEVICE_ID, pendingId, wav, MAX_WAV_BYTES, length)
     : cloud.download(path, wav, MAX_WAV_BYTES, length);
-  bool played = wav && downloaded && playWav(wav, length, cancelAudio);
-  if (wav) free(wav); return played;
+  bool played = downloaded && playWav(wav, length, cancelAudio);
+  free(wav); return played;
 }
 static void finalResult(JsonDocument &job) {
   menuOpen=false;screenPresented=false;
   String id = job["id"] | ""; bool displayed = false, played = false;
   Snapshot value = snapshot(); value.running = false; value.view = "result"; value.resultId = id;
   value.text = job["result"]["text"] | "Chua nhan dien duoc cu chi"; setState(value);
-  drawResultView(job["result"]["gesture"] | "Unknown", value.text);
+  bool screenLoaded = false;
+  String screenPath = job["screen_path"] | "";
+  if (screenJpeg && ((localSubmitted && screenPath == "local") ||
+                     (!localSubmitted && screenPath.startsWith(String(SB_UID) + "/")))) {
+    size_t downloaded = 0;
+    screenLoaded = localSubmitted
+      ? cloud.lanScreen(DEVICE_ID, id, screenJpeg, MAX_SCREEN_BYTES, downloaded)
+      : cloud.download(screenPath, screenJpeg, MAX_SCREEN_BYTES, downloaded);
+    if (screenLoaded) {
+      xSemaphoreTake(screenMutex, portMAX_DELAY);
+      screenSize = downloaded; newScreen = true;
+      xSemaphoreGive(screenMutex);
+    }
+  }
+  if (!screenLoaded) drawResultView(job["result"]["gesture"] | "Unknown", value.text);
   displayed = lcdReady;
   audioPath = job["audio_path"] | "";
   if (lastConsumed != id) {
@@ -227,7 +244,7 @@ static void exchangeState() {
       strlcpy(action.name, name.c_str(), sizeof(action.name));
       action.hasCount = true; action.countAll = output["control"]["count_all"] | false;
       handleAction(action); lastControl = id; preferences.putString("control", id);
-      menuOpen = name == "home"; redrawMenu = menuOpen.load();
+      menuOpen = name == "home";
     }
   }
   syncAt = millis() + (value.running ? 5000 : 15000);
@@ -245,24 +262,28 @@ static void networkTask(void *) {
     if (!systemOn) { delay(100); continue; }
     if (collecting) { captureStep(); delay(15); continue; } // Do not let TLS latency stretch the capture burst.
     if (WiFi.status() != WL_CONNECTED) { delay(200); continue; }
-    if (!greetingShown && int32_t(millis() - greetingRetryAt) >= 0) {
+    if (!greetingShown) {
+      greetingShown = true;
       drawGreetingScreen();
-      if (cloud.login() && playAudio(String(SB_UID) + "/greeting/voice.wav")) {
-        greetingShown = true;
-      } else {
-        greetingRetryAt = millis() + 30000;
-      }
+#if ENABLE_I2S_AUDIO
+      if (cloud.login()) playAudio(String(SB_UID) + "/greeting/voice.wav");
+#endif
     }
     exchangeState(); flushAck();
     if (int32_t(millis() - pollAt) < 0) { delay(30); continue; }
     if (!pendingId.length()) { delay(100); continue; }
+    if (requestStarted && millis() - requestStarted > RESULT_TIMEOUT_MS) {
+      Snapshot value = snapshot(); value.running = false; value.view = "paused";
+      value.text = "Het thoi gian cho ket qua. Vui long thu lai.";
+      setState(value); resetRequest(); requestStarted = 0; continue;
+    }
     if (!submitted) {
       localSubmitted = false;
       if (!submitRequest() && !submitLocalRequest()) {
         if (++failures >= 4) { Snapshot value = snapshot(); value.running = false; value.view = "paused"; value.text = "Khong ket noi duoc Supabase"; setState(value); resetRequest(); }
         pollAt = millis() + 3000; continue;
       }
-      submitted = true; failures = 0;
+      submitted = true; requestStarted = millis(); failures = 0;
     }
     if (localSubmitted) {
       JsonDocument job; job.set(localJob);
@@ -300,6 +321,13 @@ static Button buttons[]={{BTN_POWER},{BTN_NEXT},{BTN_VOLUME_UP},{BTN_VOLUME_DOWN
 static void enqueue(const char *name) { Action action={}; strlcpy(action.name,name,sizeof(action.name)); xQueueSend(commands,&action,0); }
 static void buttonEvent(int index) {
   const char *actions[]={"power","next","volume_up","volume_down","manual"};
+  if (index == 2) {
+    cancelAudio = true; currentVolumePercent = min(100, currentVolumePercent + 10); return;
+  }
+  if (index == 3) {
+    cancelAudio = true; currentVolumePercent = max(0, currentVolumePercent - 10); return;
+  }
+  cancelAudio = true;
   enqueue(actions[index]);
 }
 void setup() {
@@ -314,13 +342,12 @@ void setup() {
   if(strlen(WIFI_SSID))WiFi.begin(WIFI_SSID,WIFI_PASSWORD);else WiFi.begin();
   MDNS.begin(DEVICE_ID);
   configTime(0,0,"pool.ntp.org","time.google.com");
-  Serial.println("Cloud only. Auto: one RAM frame after a 2-second countdown. h/u/d/s = Home/Up/Down/Select. GPIO remains disabled until verified.");
+  Serial.println("Cloud first. Auto: one RAM frame after a 2-second countdown. p/n/+/ -/m = power/next/volume/manual.");
   xTaskCreate(networkTask,"cloud",16384,nullptr,1,nullptr);
 }
 void loop() {
-  if(redrawMenu.exchange(false))drawMenu(menuIndex);
-  if(hardwareOk)for(int i=0;i<4;i++)if(buttons[i].press())buttonEvent(i);
-  while(Serial.available()){char value=Serial.read();if(value=='h')buttonEvent(0);if(value=='u')buttonEvent(1);if(value=='d')buttonEvent(2);if(value=='s')buttonEvent(3);}
+  if(hardwareOk)for(int i=0;i<5;i++)if(buttons[i].press())buttonEvent(i);
+  while(Serial.available()){char value=Serial.read();if(value=='p')buttonEvent(0);if(value=='n')buttonEvent(1);if(value=='+')buttonEvent(2);if(value=='-')buttonEvent(3);if(value=='m')buttonEvent(4);}
   if(!menuOpen){xSemaphoreTake(screenMutex,portMAX_DELAY);if(newScreen){drawScreen(screenJpeg,screenSize);if(lcdReady)screenPresented=true;newScreen=false;}xSemaphoreGive(screenMutex);}
 #if ENABLE_CAMERA
   Snapshot value=snapshot(); static uint32_t last=0;

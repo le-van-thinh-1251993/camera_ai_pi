@@ -25,6 +25,7 @@ class BoundedSink : public Stream {
   BoundedSink(uint8_t *buffer, size_t size) : data(buffer), capacity(size) {}
   size_t write(uint8_t byte) override { return write(&byte, 1); }
   size_t write(const uint8_t *buffer, size_t count) override {
+    if (!data) { overflow = true; return 0; }
     if (count > capacity - length) { overflow = true; return 0; }
     memcpy(data + length, buffer, count); length += count; return count;
   }
@@ -40,6 +41,8 @@ class CloudTransport {
   HTTPClient http;
   String token;
   uint32_t expires = 0, retryAfter = 0;
+  IPAddress lanHost;
+  uint32_t lanHostAt = 0;
  public:
   CloudTransport() {
     socket.useBuiltinCACertBundle();
@@ -60,6 +63,8 @@ class CloudTransport {
     http.addHeader("Content-Type", mime);
     int code = http.sendRequest(method, const_cast<uint8_t *>(body), bytes);
     if (code > 0) {
+      if (!output) code = -6;
+      else
       if (http.getSize() > int(cap)) code = -4;
       else {
         BoundedSink sink(output, cap);
@@ -115,7 +120,7 @@ class CloudTransport {
     HTTPClient local;
     local.setConnectTimeout(1200);
     local.setTimeout(5000);
-    IPAddress host = MDNS.queryHost(LAN_HOSTNAME);
+    IPAddress host = resolveLanHost();
     if (!host) return false;
     String url = "http://" + host.toString() + ":" + String(LAN_PORT) + path;
     if (!local.begin(lanSocket, url)) return false;
@@ -132,7 +137,7 @@ class CloudTransport {
     HTTPClient local;
     local.setConnectTimeout(1200);
     local.setTimeout(12000);
-    IPAddress host = MDNS.queryHost(LAN_HOSTNAME);
+    IPAddress host = resolveLanHost();
     if (!host) return false;
     String url = "http://" + host.toString() + ":" + String(LAN_PORT) +
                  "/api/lan/device/" + device + "/recognize";
@@ -153,7 +158,7 @@ class CloudTransport {
     HTTPClient local;
     local.setConnectTimeout(1200);
     local.setTimeout(8000);
-    IPAddress host = MDNS.queryHost(LAN_HOSTNAME);
+    IPAddress host = resolveLanHost();
     if (!host) return false;
     String url = "http://" + host.toString() + ":" + String(LAN_PORT) +
                  "/api/lan/device/" + device + "/jobs/" + id + "/audio.wav";
@@ -169,6 +174,34 @@ class CloudTransport {
     }
     local.end();
     return code == 200;
+  }
+  bool lanScreen(const String &device, const String &id, uint8_t *data,
+                 size_t capacity, size_t &length) {
+    HTTPClient local;
+    local.setConnectTimeout(1200);
+    local.setTimeout(8000);
+    IPAddress host = resolveLanHost();
+    if (!host) return false;
+    String url = "http://" + host.toString() + ":" + String(LAN_PORT) +
+                 "/api/lan/device/" + device + "/jobs/" + id + "/screen.jpg";
+    if (!local.begin(lanSocket, url)) return false;
+    local.addHeader("X-LAN-Key", LAN_API_KEY_VALUE);
+    int code = local.GET();
+    length = 0;
+    if (code == 200) {
+      BoundedSink sink(data, capacity);
+      int read = local.writeToStream(&sink);
+      length = sink.length;
+      code = read >= 0 && !sink.overflow ? 200 : -1;
+    }
+    local.end();
+    return code == 200;
+  }
+  IPAddress resolveLanHost() {
+    if (lanHost && millis() - lanHostAt < 60000) return lanHost;
+    lanHost = MDNS.queryHost(LAN_HOSTNAME);
+    lanHostAt = millis();
+    return lanHost;
   }
   bool lanAck(const String &device, const String &id, bool displayed, bool played) {
     JsonDocument body, result;

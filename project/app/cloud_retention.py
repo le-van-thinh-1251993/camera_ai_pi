@@ -87,7 +87,7 @@ class CloudRetention:
             self.rt.client.request,
             "GET",
             "/rest/v1/ai_requests?select=id,owner_id,image_path,input,status,audio_path,screen_path"
-            "&status=in.(completed,acked,failed)&order=created_at.asc&offset=50&limit=100",
+            "&status=in.(completed,acked,failed)&order=created_at.desc&offset=50&limit=100",
         )
         known = {row["id"] for row in rows}
         rows.extend(row for row in overflow if row["id"] not in known)

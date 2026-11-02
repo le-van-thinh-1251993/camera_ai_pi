@@ -88,6 +88,21 @@ def attach_lan_web(app):
             raise HTTPException(404, "Không có âm thanh")
         return FileResponse(path, media_type="audio/wav")
 
+    @app.get("/api/lan/device/{device}/jobs/{request_id}/screen.jpg")
+    async def screen(device: str, request_id: str, request: Request):
+        authorize(request)
+        rt = runtime()
+        owner_for(rt, device)
+        try:
+            rid = str(uuid.UUID(request_id))
+        except ValueError:
+            raise HTTPException(422, "Mã yêu cầu không hợp lệ") from None
+        row = rt.jobs.get(rid)
+        path = rt.jobs.root / (rid + ".screen.jpg")
+        if not row or row.get("device") != device or not row.get("result") or not path.is_file():
+            raise HTTPException(404, "Không có ảnh màn hình")
+        return FileResponse(path, media_type="image/jpeg")
+
     @app.post("/api/lan/device/{device}/exchange")
     async def exchange(device: str, request: Request):
         authorize(request)
@@ -100,7 +115,10 @@ def attach_lan_web(app):
         if not isinstance(state, dict):
             raise HTTPException(400, "Trạng thái không hợp lệ")
         rt.controls.report(device, state)
-        return rt.controls.snapshot(device)
+        snapshot = rt.controls.snapshot(device)
+        if not snapshot["control_pending"]:
+            snapshot["control"] = {}
+        return snapshot
 
     @app.post("/api/lan/device/{device}/jobs/{request_id}/ack")
     async def ack(device: str, request_id: str, request: Request):

@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include <atomic>
 #include <driver/gpio.h>
 #include "config.h"
 #if ENABLE_CAMERA
@@ -37,7 +38,7 @@ public:
 static TerminalLCD lcd;
 #endif
 static bool lcdReady=false, cameraReady=false;
-static int currentVolumePercent = AUDIO_GAIN_PERCENT;
+static std::atomic<int> currentVolumePercent{AUDIO_GAIN_PERCENT};
 
 static void drawDisplayDemo() {
 #if TFT_KIND
@@ -140,7 +141,8 @@ static bool validatePins() {
   int used[64]; size_t count=0; bool ok=true;
   auto add=[&](int pin, bool required, bool output) {
     if(pin<0) {if(required) ok=false;return;}
-    if(!GPIO_IS_VALID_GPIO(pin) || (output && !GPIO_IS_VALID_OUTPUT_GPIO(pin))) {ok=false;return;}
+    if(!GPIO_IS_VALID_GPIO(pin) || (output && !GPIO_IS_VALID_OUTPUT_GPIO(pin)) ||
+       (pin>=26 && pin<=32) || (pin>=35 && pin<=37)) {ok=false;return;}
     for(size_t i=0;i<count;i++) if(used[i]==pin) ok=false;
     if(count<64) used[count++]=pin; else ok=false;
   };
@@ -158,7 +160,7 @@ static bool validatePins() {
   for(int pin:{AUDIO_BCLK,AUDIO_LRCLK,AUDIO_DOUT}) add(pin,true,true);
   add(AUDIO_MCLK,false,true);
 #endif
-  for(int pin:{BTN_HOME,BTN_UP,BTN_DOWN,BTN_SELECT}) add(pin,false,false);
+  for(int pin:{BTN_POWER,BTN_NEXT,BTN_VOLUME_UP,BTN_VOLUME_DOWN,BTN_MANUAL}) add(pin,false,false);
   return ok;
 }
 static bool beginHardware() {
@@ -212,19 +214,6 @@ static void drawScreen(const uint8_t* jpg,size_t len){
   if(lcdReady)lcd.drawJpg(jpg,len,0,0);
 #endif
 }
-static void drawMenu(int selected){
-  static const char* names[]={"Auto: hold 2 seconds","Manual: preview","Resume camera","Freeze / stop camera","Recognize frozen frame","Replay result","Play greeting","Toggle count both hands"};
-#if TFT_KIND
-  if(!lcdReady)return; lcd.fillScreen(0);lcd.setTextSize(1);lcd.setTextColor(0x6FF7);
-  lcd.setCursor(12,10);lcd.print("GESTURE TO SPEECH - MENU");
-  int step=(lcd.height()-55)/8;
-  for(int i=0;i<8;i++){int y=36+i*step;if(i==selected)lcd.fillRect(4,y-3,lcd.width()-8,step,0x2348);
-    lcd.setCursor(12,y);lcd.setTextColor(0xFFFF);lcd.print(names[i]);}
-  lcd.setCursor(8,lcd.height()-16);lcd.print("UP / DOWN: move   SELECT: choose");
-#endif
-  Serial.printf("Menu %d: %s\n",selected,names[selected]);
-}
-
 static uint16_t read16(const uint8_t* p){return uint16_t(p[0])|(uint16_t(p[1])<<8);}
 static uint32_t read32(const uint8_t* p){return uint32_t(p[0])|(uint32_t(p[1])<<8)|(uint32_t(p[2])<<16)|(uint32_t(p[3])<<24);}
 static bool playWav(uint8_t* wav,size_t length,std::atomic<bool>& cancel){
@@ -242,7 +231,7 @@ static bool playWav(uint8_t* wav,size_t length,std::atomic<bool>& cancel){
   bool ok=true;
   for(size_t offset=0;offset<bytes&&!cancel;){
     size_t n=fmin(size_t(1024),bytes-offset);
-    for(size_t i=0;i<n;i+=2){int16_t value=int16_t(read16(wav+data+offset+i));value=int32_t(value)*constrain(currentVolumePercent,0,100)/100;
+    for(size_t i=0;i<n;i+=2){int16_t value=int16_t(read16(wav+data+offset+i));value=int32_t(value)*constrain(currentVolumePercent.load(),0,100)/100;
       wav[data+offset+i]=value&255;wav[data+offset+i+1]=(value>>8)&255;}
     if(output.write(wav+data+offset,n)!=n){ok=false;break;}offset+=n;
   }

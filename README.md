@@ -20,9 +20,9 @@ bash ~/ai-camera-cloud-v6-single-network-fix/install_pi.sh
 
 Installer dùng venv `~/ai-camera/.venv`, giữ model/recording, ánh xạ câu nói, `.env.cloud`, các key Supabase và `secrets.h` hiện có. Chỉ cài thư viện còn thiếu, không thay MediaPipe/OpenCV. Source cập nhật tại `~/ai-camera-release`; file bị thay có backup trong `backups/cloud-v6-*`.
 
-**Không đưa secret/service key Supabase vào ZIP.** ZIP có sẵn URL project, còn `.env.cloud` và khóa server hiện có trên Pi được giữ nguyên. Secret Supabase có toàn quyền Storage/Postgres; hardcode vào ZIP sẽ làm lộ quyền truy cập khi chép sang máy khác. `SUPABASE_SECRET_KEY` vẫn phải được cung cấp trong `.env.cloud` của máy đích. Nếu `API_KEY` dashboard đã có thì giữ nguyên; nếu đang rỗng, installer đặt mặc định `123456` cho demo nội bộ. Hãy đổi ngay trước khi mở ngrok công khai; đây không phải key Supabase.
+**Không đưa secret/service key Supabase vào ZIP.** ZIP có sẵn URL project, còn `.env.cloud` và khóa server hiện có trên Pi được giữ nguyên. Secret Supabase có toàn quyền Storage/Postgres; hardcode vào ZIP sẽ làm lộ quyền truy cập khi chép sang máy khác. `SUPABASE_SECRET_KEY` vẫn phải được cung cấp trong `.env.cloud` của máy đích. Nếu `API_KEY` dashboard đang rỗng, installer sinh khóa ngẫu nhiên; hãy lấy khóa bằng script quản trị trước khi mở ngrok công khai.
 
-Đọc khóa dashboard trên terminal riêng rồi nhập vào cửa sổ Cài đặt kết nối (bản mới thường là `123456` nếu chưa có khóa cũ):
+Đọc khóa dashboard trên terminal riêng rồi nhập vào cửa sổ Cài đặt kết nối (installer sinh khóa ngẫu nhiên nếu chưa có khóa cũ):
 
 ```bash
 ~/ai-camera/.venv/bin/python ~/ai-camera-release/scripts/dashboard_key.py --show
@@ -102,8 +102,9 @@ Chọn **Cộng tất cả tay** khi cần cộng hai tay để đếm 6–10 ng
 
 ## Giao diện
 
-Khi Supabase tạm mất kết nối, dashboard upload/camera và ESP32 sẽ chuyển sang nhận
-diện cục bộ trên Pi nếu `CLOUD_LOCAL_FALLBACK=1` (mặc định trong cấu hình mẫu).
+Khi Supabase tạm mất kết nối, dashboard upload/camera và ESP32 chỉ chuyển sang nhận
+diện cục bộ trên Pi khi chủ động đặt `CLOUD_LOCAL_FALLBACK=1`. Cấu hình mẫu mặc định
+`CLOUD_LOCAL_FALLBACK=0` để mọi ảnh đi qua Supabase.
 Kết quả được lưu trong `DATA_DIR/hybrid/jobs.sqlite3` và vẫn xem được qua dashboard.
 
 Chỉ còn hai nguồn camera: điện thoại/máy đang mở trang và ESP32 qua Cloud/LAN. Video điện thoại vẽ trong canvas trong khung, có `playsinline`, không dùng fullscreen video của iPhone.
@@ -136,7 +137,7 @@ GPIO chưa xác minh vẫn để -1 và driver mặc định tắt. Chưa có pi
 
 Auto gửi một JPEG sau khi đếm ngược; không ghi LittleFS/NVS cho từng mẫu chưa xác nhận. Chỉ lưu UUID Manual đã nhận vào Cloud để phục hồi sau reboot, mã kết quả đã tiêu thụ và ACK của kết quả cuối. Loa tự phát tối đa một lần mỗi UUID; mất điện đúng lúc phát có thể làm câu bị thiếu, dùng Replay khi cần.
 
-Firmware tái sử dụng TLS socket, gộp báo trạng thái/đọc lệnh trong một RPC, giảm polling khi rảnh. Khi đang thu chuỗi 2 giây, không thực hiện TLS trên task đó. Nếu không có khung camera thì timeout và trả trạng thái lỗi, không kẹt vòng Auto mãi. Menu có Home/Up/Down/Select và tùy chọn bật/tắt đếm cả hai tay.
+Firmware tái sử dụng TLS socket, gộp báo trạng thái/đọc lệnh trong một RPC, giảm polling khi rảnh. Khi đang thu chuỗi 2 giây, không thực hiện TLS trên task đó. Nếu không có khung camera thì timeout và trả trạng thái lỗi, không kẹt vòng Auto mãi. Năm nút thực tế là Power/Next/Volume+/Volume-/Manual; lệnh Serial tương ứng là `p/n/+/-/m`.
 
 Với ESP32-S3 N16R8, chọn flash/PSRAM/partition theo tài liệu module. Kiểm tra OPI PSRAM với nhà cung cấp; nên dùng app partition đủ lớn. Các nhánh driver đã kiểm tra biên dịch không thay thế thử trên board thật.
 
@@ -159,7 +160,11 @@ CLOUD_PROBE_RETENTION_MINUTES=60
 MAX_CROP_RETRIES=4
 ```
 
-WAV được dùng chung theo SHA-256 trong thư mục riêng của thiết bị; mẫu trung gian không tạo WAV/screen. Ảnh hỏng/4xx được đánh dấu failed ngay; lỗi mạng/503 có retry và lease fencing. Bộ đếm polling tăng thời gian chờ lúc rảnh, được đánh thức khi có request web hoặc lệnh mới.
+WAV được dùng chung theo SHA-256 trong thư mục riêng của thiết bị; kết quả ESP32
+offline còn tạo một JPEG màn hình tiếng Việt trong outbox để gửi lại khi Cloud hồi
+phục. Ảnh hỏng/4xx được đánh dấu failed ngay; lỗi mạng/503 có retry và lease
+fencing. Bộ đếm polling tăng thời gian chờ lúc rảnh, được đánh thức khi có request
+web hoặc lệnh mới.
 
 ## Tự kiểm tra trên Pi
 

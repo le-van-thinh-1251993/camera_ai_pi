@@ -5,6 +5,7 @@ import ast
 import json
 import re
 import shutil
+import secrets
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
@@ -76,9 +77,7 @@ def install(bundle, root):
     values = dotenv_values(stream=StringIO(text))
     new_key = not values.get("API_KEY")
     if new_key:
-        # Short default is convenient for a private LAN demo.  Replace it
-        # before exposing the dashboard through ngrok or another public URL.
-        value = "API_KEY=123456"
+        value = "API_KEY=" + secrets.token_urlsafe(32)
         text, count = re.subn(r"(?m)^\s*API_KEY\s*=.*$", value, text)
         if not count:
             text = text.rstrip() + "\n" + value + "\n"

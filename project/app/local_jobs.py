@@ -70,7 +70,9 @@ class LocalJobs:
     def ack(self, request_id, displayed, played):
         with self.connect() as db:
             db.execute(
-                "UPDATE jobs SET displayed=?,played=?,synced=0,updated=? WHERE id=?",
+                "UPDATE jobs SET displayed=?,played=?,"
+                "synced=CASE WHEN json_extract(result,'$.fallback')=1 THEN 0 ELSE synced END,"
+                "updated=? WHERE id=?",
                 (int(displayed), int(played), time.time(), request_id),
             )
 
@@ -79,7 +81,8 @@ class LocalJobs:
             ids = [
                 r[0]
                 for r in db.execute(
-                    "SELECT id FROM jobs WHERE result IS NOT NULL AND synced=0 ORDER BY updated LIMIT 10"
+                    "SELECT id FROM jobs WHERE result IS NOT NULL AND synced=0 "
+                    "AND json_extract(result,'$.fallback')=1 ORDER BY updated LIMIT 10"
                 )
             ]
         return [self.get(i) for i in ids]

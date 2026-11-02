@@ -31,7 +31,7 @@ class CloudRuntime:
         self.completed = {}
         self.shared_voices = set()
         self.enabled = os.getenv("CLOUD_ENABLED", "1") == "1"
-        self.local_fallback = os.getenv("CLOUD_LOCAL_FALLBACK", "1") == "1"
+        self.local_fallback = os.getenv("CLOUD_LOCAL_FALLBACK", "0") == "1"
         self.state = {
             "enabled": self.enabled,
             "connected": False,
@@ -52,6 +52,7 @@ class CloudRuntime:
 
         self.controls = DeviceControl(self)
         self.retention = CloudRetention(self)
+        self.offline_retries = {}
 
     async def call(self, method, *args, **kwargs):
         return await asyncio.to_thread(method, *args, **kwargs)
@@ -113,6 +114,18 @@ class CloudRuntime:
             event["audio_url"], event["tts"] = await self.voice(event["gesture"])
         else:
             event.update(audio_url=None, tts="not-confirmed")
+        if options.get("source") == "esp32" and event["confirmed"]:
+            try:
+                screen = await self.call(
+                    screen_jpeg,
+                    {"device_id": device, "mode": "cloud", "view": "result", "result": event},
+                    480,
+                    320,
+                )
+                (self.jobs.root / (rid + ".screen.jpg")).write_bytes(screen)
+                event["screen_path"] = "local"
+            except Exception as exc:
+                log.warning("Local result screen rendering failed: %s", type(exc).__name__)
         await self.call(self.jobs.complete, rid, event)
         await self.call(self.jobs.prune)
         self.cache_completed(event)
@@ -281,6 +294,10 @@ class CloudRuntime:
                 "/rest/v1/ai_devices?select=id&limit=1",
             )
             self.state.update(connected=True, last_error=None)
+            try:
+                await self.ensure_greeting()
+            except Exception as exc:
+                log.warning("Greeting upload failed: %s", type(exc).__name__)
         except CloudError as exc:
             self.state.update(connected=False, last_error=exc.code)
         controls = asyncio.create_task(self.control_loop())
@@ -295,6 +312,21 @@ class CloudRuntime:
             with contextlib.suppress(asyncio.CancelledError):
                 await controls
             self.client.close()
+
+    async def ensure_greeting(self):
+        if not self.client or not self.lan_owner_id:
+            return
+        path = Path(__file__).resolve().parents[1] / "recordings" / "xinchao.wav"
+        if not path.is_file():
+            log.warning("Greeting audio is missing: %s", path)
+            return
+        await self.call(
+            self.client.upload,
+            "ai-results",
+            f"{self.lan_owner_id}/greeting/voice.wav",
+            path.read_bytes(),
+            "audio/wav",
+        )
 
     async def maintenance_loop(self):
         while True:
@@ -387,20 +419,19 @@ class CloudRuntime:
             result = row.get("result") or {}
             if not result.get("fallback") or not self.client:
                 continue
-            image = self.data / "hybrid" / (row["id"] + ".jpg")
-            if not image.is_file():
-                continue
-            image_path = f"{row['owner']}/{row['id']}.jpg"
-            await self.call(
-                self.client.upload, "ai-images", image_path, image.read_bytes(), "image/jpeg"
-            )
-            payload = dict(row["input"])
-            payload["pipeline_version"] = 6
-            payload["source"] = payload.get("source", "browser")
-            payload["frames"] = [
-                {"path": image_path, "ms": 0, "sha256": hashlib.sha256(image.read_bytes()).hexdigest()}
-            ]
             try:
+                image = self.data / "hybrid" / (row["id"] + ".jpg")
+                if not image.is_file():
+                    continue
+                image_data = image.read_bytes()
+                image_path = f"{row['owner']}/{row['id']}.jpg"
+                await self.call(self.client.upload, "ai-images", image_path, image_data, "image/jpeg")
+                payload = dict(row["input"])
+                payload["pipeline_version"] = 6
+                payload["source"] = payload.get("source", "browser")
+                payload["frames"] = [
+                    {"path": image_path, "ms": 0, "sha256": hashlib.sha256(image_data).hexdigest()}
+                ]
                 await self.call(
                     self.client.request,
                     "POST",
@@ -414,35 +445,66 @@ class CloudRuntime:
                     },
                     headers={"Prefer": "return=minimal"},
                 )
-            except CloudError as exc:
-                if exc.status != 409:
-                    raise
-            public = {key: value for key, value in result.items() if key != "audio_url"}
-            audio_path = None
-            audio_url = result.get("audio_url")
-            if audio_url:
-                audio_name = Path(audio_url).name
-                audio_file = self.data / "audio" / audio_name
-                if audio_file.is_file() and len(audio_name) == 68 and audio_name.endswith(".wav"):
-                    digest = hashlib.sha256(audio_file.read_bytes()).hexdigest()
-                    audio_path = f"{row['owner']}/voices/{digest}.wav"
+            except Exception as exc:
+                status = exc.status if isinstance(exc, CloudError) else 0
+                if status != 409:
+                    self.offline_retries[row["id"]] = self.offline_retries.get(row["id"], 0) + 1
+                    log.warning(
+                        "Offline outbox row %s failed (attempt %s): %s",
+                        row["id"],
+                        self.offline_retries[row["id"]],
+                        getattr(exc, "code", type(exc).__name__),
+                    )
+                    continue
+            try:
+                public = {key: value for key, value in result.items() if key != "audio_url"}
+                audio_path = None
+                screen_path = None
+                screen_file = self.jobs.root / (row["id"] + ".screen.jpg")
+                if result.get("screen_path") == "local" and screen_file.is_file():
+                    screen_path = f"{row['owner']}/{row['id']}/screen.jpg"
                     await self.call(
                         self.client.upload,
                         "ai-results",
-                        audio_path,
-                        audio_file.read_bytes(),
-                        "audio/wav",
+                        screen_path,
+                        screen_file.read_bytes(),
+                        "image/jpeg",
                     )
-            await self.call(
-                self.client.request,
-                "PATCH",
-                "/rest/v1/ai_requests?id=eq." + row["id"],
-                {
-                    "status": "completed",
-                    "result": public,
-                    "audio_path": audio_path,
-                    "completed_at": datetime.now(timezone.utc).isoformat(),
-                },
-            )
-            await self.call(self.jobs.mark_synced, row["id"], row["updated"])
-            self.state["offline_synced"] = self.state.get("offline_synced", 0) + 1
+                    public["screen_path"] = screen_path
+                audio_url = result.get("audio_url")
+                if audio_url:
+                    audio_name = Path(audio_url).name
+                    audio_file = self.data / "audio" / audio_name
+                    if audio_file.is_file() and len(audio_name) == 68 and audio_name.endswith(".wav"):
+                        digest = hashlib.sha256(audio_file.read_bytes()).hexdigest()
+                        audio_path = f"{row['owner']}/voices/{digest}.wav"
+                        await self.call(
+                            self.client.upload,
+                            "ai-results",
+                            audio_path,
+                            audio_file.read_bytes(),
+                            "audio/wav",
+                        )
+                await self.call(
+                    self.client.request,
+                    "PATCH",
+                    "/rest/v1/ai_requests?id=eq." + row["id"],
+                    {
+                        "status": "completed",
+                        "result": public,
+                        "audio_path": audio_path,
+                        "screen_path": screen_path,
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                await self.call(self.jobs.mark_synced, row["id"], row["updated"])
+                self.offline_retries.pop(row["id"], None)
+                self.state["offline_synced"] = self.state.get("offline_synced", 0) + 1
+            except Exception as exc:
+                self.offline_retries[row["id"]] = self.offline_retries.get(row["id"], 0) + 1
+                log.warning(
+                    "Offline outbox row %s failed (attempt %s): %s",
+                    row["id"],
+                    self.offline_retries[row["id"]],
+                    type(exc).__name__,
+                )

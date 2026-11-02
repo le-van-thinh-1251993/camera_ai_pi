@@ -2,7 +2,7 @@ Bản này gồm:
 - URL Supabase.
 - Secret/service key.
 - Device UID và worker config.
-- API dashboard mặc định 123456 nếu máy mới chưa có .env.
+- API dashboard được installer sinh ngẫu nhiên nếu máy mới chưa có .env.
 - Tự khởi động dashboard local.
 - Tự khởi động ngrok nếu Pi có:
   - /usr/bin/ngrok, hoặc

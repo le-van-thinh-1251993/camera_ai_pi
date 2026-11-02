@@ -112,6 +112,11 @@ def attach_cloud_web(app, auth):
                     "cloud": False,
                     "fallback": True,
                 }
+            if not rt.client or not rt.state["connected"]:
+                raise HTTPException(
+                    503,
+                    "Supabase đang mất kết nối; nhận diện cục bộ đang tắt.",
+                )
             async with slots:
                 prior = await rt.call(rt.client.get_job, rid)
                 if prior:

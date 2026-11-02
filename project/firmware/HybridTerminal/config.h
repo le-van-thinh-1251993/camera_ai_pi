@@ -1,9 +1,22 @@
 #pragma once
-// Copy network values here. Never publish this file after adding credentials.
-static constexpr char WIFI_SSID[] = "";
-static constexpr char WIFI_PASSWORD[] = "";
+#if __has_include("secrets.h")
+#include "secrets.h"
+#else
+#include "secrets.example.h"
+#endif
+#ifndef WIFI_SSID_VALUE
+#define WIFI_SSID_VALUE ""
+#endif
+#ifndef WIFI_PASSWORD_VALUE
+#define WIFI_PASSWORD_VALUE ""
+#endif
+#ifndef LAN_API_KEY_VALUE
+#define LAN_API_KEY_VALUE ""
+#endif
+static constexpr char WIFI_SSID[] = WIFI_SSID_VALUE;
+static constexpr char WIFI_PASSWORD[] = WIFI_PASSWORD_VALUE;
 static constexpr char DEVICE_ID[] = "esp32-01";
-static constexpr char LAN_HOSTNAME[] = "ai-camera.local";
+static constexpr char LAN_HOSTNAME[] = "ai-camera";
 static constexpr uint16_t LAN_PORT = 8000;
 #ifndef LAN_API_KEY_VALUE
 #define LAN_API_KEY_VALUE ""
@@ -50,11 +63,11 @@ static constexpr int BTN_NEXT=-1,BTN_VOLUME_UP=-1,BTN_VOLUME_DOWN=-1,BTN_MANUAL=
 static constexpr int AUDIO_BCLK=-1,AUDIO_LRCLK=-1,AUDIO_DOUT=-1;
 static constexpr int AUDIO_MCLK=-1; // Optional; check amplifier
 static constexpr int AUDIO_GAIN_PERCENT=60; // Digital gain, 0..100
-static constexpr int BTN_HOME=-1,BTN_UP=-1,BTN_DOWN=-1,BTN_SELECT=-1;
 static constexpr bool BUTTON_ACTIVE_LOW=true; // Input pull-up; button to GND after pins verified
 // INMP441 is reserved. Gesture workflow does not record audio or run speech recognition.
 static constexpr int MIC_BCLK=-1,MIC_LRCLK=-1,MIC_DIN=-1;
 static constexpr unsigned DEBOUNCE_MS=35;
 static constexpr unsigned PREVIEW_INTERVAL_MS=100;
 #define CLOUD_HTTP_TIMEOUT_MS 8000
+static constexpr unsigned RESULT_TIMEOUT_MS=25000;
 static constexpr size_t MAX_JPEG_BYTES=180000, MAX_SCREEN_BYTES=180000, MAX_WAV_BYTES=512000;

@@ -56,7 +56,9 @@ def main():
     publishable = os.environ.get("SUPABASE_PUBLISHABLE_KEY", "")
     if not publishable:
         raise SystemExit("Set SUPABASE_PUBLISHABLE_KEY first; account file has been saved")
-    local = os.environ.get("HYBRID_API_KEY") or secrets.token_urlsafe(32)
+    local = os.environ.get("LAN_API_KEY") or secrets.token_urlsafe(32)
+    wifi_ssid = os.environ.get("WIFI_SSID", "")
+    wifi_password = os.environ.get("WIFI_PASSWORD", "")
     values = {
         "SUPABASE_URL": client.url,
         "SUPABASE_PUBLISHABLE_KEY": publishable,
@@ -64,6 +66,7 @@ def main():
         "DEVICE_UID": account["uid"],
         "DEVICE_EMAIL": account["email"],
         "DEVICE_PASSWORD": account["password"],
+        "LAN_API_KEY": local,
     }
     (out / "device.env").write_text("\n".join(k + "=" + v for k, v in values.items()) + "\n")
     (out / "device.env").chmod(0o600)
@@ -75,13 +78,19 @@ def main():
             "SB_EMAIL": account["email"],
             "SB_PASSWORD": account["password"],
             "SB_UID": account["uid"],
-            "HYBRID_KEY": local,
+        }.items()
+    ) + "".join(
+        "#define " + k + " " + json.dumps(v) + "\n"
+        for k, v in {
+            "WIFI_SSID_VALUE": wifi_ssid,
+            "WIFI_PASSWORD_VALUE": wifi_password,
+            "LAN_API_KEY_VALUE": local,
         }.items()
     )
     (out / "secrets.h").write_text(header)
     (out / "secrets.h").chmod(0o600)
     (out / "pi-device.env").write_text(
-        f"CLOUD_DEVICE_ID={args.device}\nCLOUD_DEVICE_UID={account['uid']}\nHYBRID_API_KEY={local}\n"
+        f"CLOUD_DEVICE_ID={args.device}\nCLOUD_DEVICE_UID={account['uid']}\nLAN_API_KEY={local}\n"
     )
     (out / "pi-device.env").chmod(0o600)
     print("Registered device. Private files saved to:", out.resolve())

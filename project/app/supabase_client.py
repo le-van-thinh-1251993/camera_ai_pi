@@ -6,7 +6,6 @@ import time
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
-from urllib.error import HTTPError, URLError
 import httpx
 from dotenv import load_dotenv
 
@@ -112,14 +111,7 @@ class SupabaseClient:
                 if raw:
                     return value
                 return json.loads(value) if value else None
-        except HTTPError as exc:
-            try:
-                error = json.loads(exc.read(4096))
-                code = str(error.get("code") or error.get("error") or "request_rejected")[:80]
-            except Exception:
-                code = "request_rejected"
-            raise CloudError(exc.code, code) from None
-        except (httpx.HTTPError, URLError, TimeoutError, OSError) as exc:
+        except (httpx.HTTPError, TimeoutError, OSError) as exc:
             # Keep a safe, short class-only diagnostic.  Never include URLs,
             # headers, request bodies, or credentials in logs/API responses.
             kind = type(exc).__name__
