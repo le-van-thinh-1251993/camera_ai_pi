@@ -1,4 +1,4 @@
-import { el } from './api.js';
+import { el, requestId } from './api.js';
 export class DeviceController {
   constructor(api, ui) {
     this.api = api;
@@ -24,7 +24,7 @@ export class DeviceController {
       el('device-error').textContent = '';
       const state = await this.api.post(this.path() + '/command', {
         action,
-        request_id: 'web-' + crypto.randomUUID(),
+        request_id: 'web-' + requestId(),
         count_all: el('count-all').checked,
       });
       this.render(state);

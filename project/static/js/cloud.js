@@ -1,11 +1,11 @@
-import { sleep } from './api.js';
+import { requestId, sleep } from './api.js';
 export class CloudJobs {
   constructor(api, status) {
     this.api = api;
     this.status = status;
   }
   async submit(files, options, signal) {
-    const id = crypto.randomUUID(),
+    const id = requestId(),
       data = new FormData();
     for (let i = 0; i < files.length; i++)
       data.append(options.source === 'upload' ? 'file' : 'files', files[i], `${i}.jpg`);
