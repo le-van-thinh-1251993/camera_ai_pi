@@ -1,10 +1,10 @@
-import { Api, el } from './js/api.js?v=cloud-v6-camera-upload-4';
-import { CloudJobs } from './js/cloud.js?v=cloud-v6-camera-upload-4';
-import { AudioPlayer } from './js/audio.js?v=cloud-v6-camera-upload-4';
-import { CameraController } from './js/camera.js?v=cloud-v6-camera-upload-4';
-import { UploadController } from './js/upload.js?v=cloud-v6-camera-upload-4';
-import { DeviceController } from './js/device.js?v=cloud-v6-camera-upload-4';
-import { watchEvents } from './js/events.js?v=cloud-v6-camera-upload-4';
+import { Api, el } from './js/api.js?v=cloud-v6-camera-upload-5';
+import { CloudJobs } from './js/cloud.js?v=cloud-v6-camera-upload-5';
+import { AudioPlayer } from './js/audio.js?v=cloud-v6-camera-upload-5';
+import { CameraController } from './js/camera.js?v=cloud-v6-camera-upload-5';
+import { UploadController } from './js/upload.js?v=cloud-v6-camera-upload-5';
+import { DeviceController } from './js/device.js?v=cloud-v6-camera-upload-5';
+import { watchEvents } from './js/events.js?v=cloud-v6-camera-upload-5';
 
 const api = new Api();
 let current = null,
@@ -153,6 +153,8 @@ async function result(event, speak = true) {
 const camera = new CameraController(jobs, {
   start: () => {
     clear();
+    el('preview-panel').classList.remove('large-preview');
+    el('preview-size').setAttribute('aria-pressed', 'false');
     el('camera-options').open = false;
   },
   status: (message) => {
@@ -214,6 +216,10 @@ function setMode(next) {
   device.activate(false);
   clear();
   mode = next;
+  if (mode === 'camera') {
+    el('preview-panel').classList.remove('large-preview');
+    el('preview-size').setAttribute('aria-pressed', 'false');
+  }
   for (const name of ['upload', 'camera']) {
     el('panel-' + name).hidden = name !== mode;
     el('tab-' + name).setAttribute('aria-selected', String(name === mode));

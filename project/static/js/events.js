@@ -1,4 +1,4 @@
-import { sleep } from './api.js?v=cloud-v6-camera-upload-4';
+import { sleep } from './api.js?v=cloud-v6-camera-upload-5';
 export async function watchEvents(api, onEvent, signal) {
   while (!signal.aborted) {
     try {
