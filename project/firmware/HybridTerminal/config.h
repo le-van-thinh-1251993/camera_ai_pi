@@ -14,8 +14,15 @@ static constexpr uint16_t LAN_PORT = 8000;
 #ifndef ENABLE_CAMERA
 #define ENABLE_CAMERA 0
 #endif
+#ifndef USE_35INCH_TFT
+#define USE_35INCH_TFT 0
+#endif
+#if USE_35INCH_TFT
+#include "config_35inch_tft.h"
+#else
 #ifndef TFT_KIND
 #define TFT_KIND 0 // 0=Serial only, 1=ILI9488 SPI, 2=ST7796 SPI, 3=ILI9341 SPI
+#endif
 #endif
 #ifndef ENABLE_I2S_AUDIO
 #define ENABLE_I2S_AUDIO 0 // Adapter for a standard I2S amp; not an analog/PWM amp
@@ -27,6 +34,7 @@ static constexpr int CAM_SDA=-1,CAM_SCL=-1,CAM_PWDN=-1,CAM_RESET=-1;
 static constexpr int CAM_XCLK_HZ=20000000; // Confirm against camera module datasheet
 static constexpr bool CAM_VFLIP=false,CAM_HMIRROR=false;
 
+#if !USE_35INCH_TFT
 static constexpr int TFT_SCLK=-1,TFT_MOSI=-1,TFT_MISO=-1,TFT_CS=-1,TFT_DC=-1,TFT_RST=-1;
 static constexpr int TFT_BL=-1; // Optional external backlight enable, not a power supply
 static constexpr bool TFT_BL_ACTIVE_HIGH=true;
@@ -34,6 +42,10 @@ static constexpr int TFT_NATIVE_WIDTH=320,TFT_NATIVE_HEIGHT=480; // ILI9488, rot
 static constexpr int TFT_ROTATION=1;
 static constexpr bool TFT_INVERT=false,TFT_RGB_ORDER=false;
 static constexpr int TFT_SPI_HZ=20000000;
+#endif
+#if !USE_35INCH_TFT
+static constexpr int BTN_NEXT=-1,BTN_VOLUME_UP=-1,BTN_VOLUME_DOWN=-1,BTN_MANUAL=-1,BTN_POWER=-1;
+#endif
 
 static constexpr int AUDIO_BCLK=-1,AUDIO_LRCLK=-1,AUDIO_DOUT=-1;
 static constexpr int AUDIO_MCLK=-1; // Optional; check amplifier

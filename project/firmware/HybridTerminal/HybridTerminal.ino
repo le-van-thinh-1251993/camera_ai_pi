@@ -26,10 +26,12 @@ static String pendingId, lastConsumed, audioPath, lastControl;
 static unsigned frameCount = 0, targetFrames = 0, attempt = 0;
 static bool collecting = false, submitted = false, collectingAuto = false;
 static bool localSubmitted = false;
+static bool systemOn = true, greetingShown = false;
 static JsonDocument localJob;
 static bool manualPersisted = false;
 static uint32_t pollAt = 0, syncAt = 0;
 static uint32_t captureStarted = 0;
+static uint32_t greetingRetryAt = 0;
 static JsonDocument ackQueue;
 
 static uint8_t *allocateBytes(size_t bytes) {
@@ -161,29 +163,33 @@ static void finalResult(JsonDocument &job) {
   String id = job["id"] | ""; bool displayed = false, played = false;
   Snapshot value = snapshot(); value.running = false; value.view = "result"; value.resultId = id;
   value.text = job["result"]["text"] | "Chua nhan dien duoc cu chi"; setState(value);
-  if (screenJpeg && !localSubmitted) {
-    auto image = allocateBytes(MAX_SCREEN_BYTES); size_t length = 0;
-    if (image && cloud.download(job["screen_path"] | "", image, MAX_SCREEN_BYTES, length)) {
-      xSemaphoreTake(screenMutex, portMAX_DELAY); memcpy(screenJpeg, image, length);
-      screenSize = length; newScreen = true; xSemaphoreGive(screenMutex); displayed = lcdReady;
-    }
-    if (image) free(image);
-  }
+  drawResultView(job["result"]["gesture"] | "Unknown", value.text);
+  displayed = lcdReady;
   audioPath = job["audio_path"] | "";
   if (lastConsumed != id) {
     lastConsumed = id; preferences.putString("consumed", id);
     preferences.putBool("played", false); played = playAudio(audioPath);
     preferences.putBool("played", played);
   } else played = preferences.getBool("played", false);
-  uint32_t until=millis()+200;
-  while(lcdReady&&!screenPresented&&int32_t(millis()-until)<0)delay(5);
-  displayed=screenPresented.load();
   if (localSubmitted) cloud.lanAck(DEVICE_ID, id, displayed, played);
   else queueAck(id, displayed, played);
   Serial.println(value.text); resetRequest();
 }
 static void handleAction(const Action &action) {
   String name = action.name; Snapshot value = snapshot(); cancelAudio = true;
+  if (name == "power") {
+    systemOn = !systemOn;
+    if (!systemOn) { value.running = false; value.view = "standby"; setState(value); resetRequest(); drawStandbyView(); }
+    else { value.view = "greeting"; setState(value); drawGreetingScreen(); }
+    return;
+  }
+  if (!systemOn) return;
+  if (name == "volume_up") { currentVolumePercent = min(100, currentVolumePercent + 10); return; }
+  if (name == "volume_down") { currentVolumePercent = max(0, currentVolumePercent - 10); return; }
+  if (name == "next") {
+    resetRequest(); menuOpen = false; value.mode = "auto"; value.view = "preview"; value.running = true; setState(value);
+    beginCapture(true, true); return;
+  }
   if (action.hasCount) value.countAll = action.countAll;
   if (name == "toggle_count") { value.countAll = !value.countAll; setState(value); return; }
   if (name == "replay") { playAudio(audioPath); return; }
@@ -191,9 +197,11 @@ static void handleAction(const Action &action) {
   resetRequest(); value.hold = 0; value.resultId = "";
   if (name == "home") { value.view = "home"; value.running = false; }
   else if (name == "stop") { value.view = "paused"; value.running = false; }
-  else if (name == "auto" || name == "manual") { value.mode = name; value.view = "preview"; value.running = true; }
-  else if (name == "start") { value.view = "preview"; value.running = true; }
+  else if (name == "auto") { menuOpen = false; value.mode = name; value.view = "preview"; value.running = true; }
+  else if (name == "manual") { menuOpen = false; value.mode = name; value.view = "manual"; value.running = false; }
+  else if (name == "start") { menuOpen = false; value.view = "preview"; value.running = true; }
   setState(value);
+  if (name == "manual") drawManualView();
   if (name == "capture" && value.mode == "manual") beginCapture(false, true);
   else if (value.mode == "auto" && value.running) beginCapture(true, true);
 }
@@ -234,8 +242,17 @@ static void networkTask(void *) {
   for (;;) {
     Action action;
     if (xQueueReceive(commands, &action, 0) == pdTRUE) { handleAction(action); syncAt = 0; failures = 0; }
+    if (!systemOn) { delay(100); continue; }
     if (collecting) { captureStep(); delay(15); continue; } // Do not let TLS latency stretch the capture burst.
     if (WiFi.status() != WL_CONNECTED) { delay(200); continue; }
+    if (!greetingShown && int32_t(millis() - greetingRetryAt) >= 0) {
+      drawGreetingScreen();
+      if (cloud.login() && playAudio(String(SB_UID) + "/greeting/voice.wav")) {
+        greetingShown = true;
+      } else {
+        greetingRetryAt = millis() + 30000;
+      }
+    }
     exchangeState(); flushAck();
     if (int32_t(millis() - pollAt) < 0) { delay(30); continue; }
     if (!pendingId.length()) { delay(100); continue; }
@@ -279,17 +296,11 @@ struct Button {
     return false;
   }
 };
-static Button buttons[]={{BTN_HOME},{BTN_UP},{BTN_DOWN},{BTN_SELECT}};
+static Button buttons[]={{BTN_POWER},{BTN_NEXT},{BTN_VOLUME_UP},{BTN_VOLUME_DOWN},{BTN_MANUAL}};
 static void enqueue(const char *name) { Action action={}; strlcpy(action.name,name,sizeof(action.name)); xQueueSend(commands,&action,0); }
 static void buttonEvent(int index) {
-  if (index == 0) { cancelAudio=true; menuOpen=true; enqueue("home"); drawMenu(menuIndex); return; }
-  if (menuOpen) {
-    if (index == 1) menuIndex=(menuIndex+7)%8;
-    if (index == 2) menuIndex=(menuIndex+1)%8;
-    if (index == 3) { const char *actions[]={"auto","manual","start","stop","capture","replay","greeting","toggle_count"}; enqueue(actions[menuIndex]); menuOpen=false; }
-    else drawMenu(menuIndex);
-  } else if (index == 3) { Snapshot value=snapshot(); enqueue(value.view=="result"?"start":value.mode=="manual"?(value.running?"stop":"capture"):"stop"); }
-  else { menuOpen=true; drawMenu(menuIndex); }
+  const char *actions[]={"power","next","volume_up","volume_down","manual"};
+  enqueue(actions[index]);
 }
 void setup() {
   Serial.begin(115200); delay(200);
@@ -298,7 +309,8 @@ void setup() {
   for(auto &frame:frames) frame.data=allocateBytes(MAX_JPEG_BYTES);
   hardwareOk=beginHardware();
   if(hardwareOk)for(auto &button:buttons)if(button.pin>=0)pinMode(button.pin,BUTTON_ACTIVE_LOW?INPUT_PULLUP:INPUT_PULLDOWN);
-  drawMenu(0); WiFi.mode(WIFI_STA); WiFi.setAutoReconnect(true); WiFi.persistent(true);
+  drawGreetingScreen(); delay(1200);
+  WiFi.mode(WIFI_STA); WiFi.setAutoReconnect(true); WiFi.persistent(true);
   if(strlen(WIFI_SSID))WiFi.begin(WIFI_SSID,WIFI_PASSWORD);else WiFi.begin();
   MDNS.begin(DEVICE_ID);
   configTime(0,0,"pool.ntp.org","time.google.com");

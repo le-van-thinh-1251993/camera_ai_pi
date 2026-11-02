@@ -118,6 +118,20 @@ Dashboard ESP32 hiển thị ảnh gửi gần nhất; **camera trực tiếp đ
 
 Dùng duy nhất `project/firmware/HybridTerminal`. Giữ `secrets.h` của thiết bị đang có; ZIP không chứa khóa. File `secrets.example.h` chỉ là mẫu trống.
 
+### Giao diện TFT và nút vật lý
+
+Khi bật `USE_35INCH_TFT=1`, màn hình có các trạng thái:
+
+- **Greeting:** “Xin chào thầy và các bạn đến với buổi Demo bài tập lớn.” và phát audio greeting.
+- **Camera:** khung preview lớn để căn bàn tay; sau khi nhận diện sẽ tắt preview.
+- **Kết quả:** hiển thị tên kết quả và phần “Ý nghĩa / Loa đọc” đúng bằng text audio.
+- **Manual:** chờ thao tác trên dashboard, sau đó hiển thị và phát kết quả giống chế độ Auto.
+
+Bốn nút chức năng là `BTN_NEXT`, `BTN_VOLUME_UP`, `BTN_VOLUME_DOWN`,
+`BTN_MANUAL`; nút riêng `BTN_POWER` chuyển sang/từ trạng thái standby. Nút nguồn
+chỉ thực sự cắt điện nếu phần cứng có mạch power-latch; firmware không tự cắt được
+nguồn 5V. Tất cả GPIO vẫn để `-1` trong preset cho đến khi đối chiếu chân thật.
+
 GPIO chưa xác minh vẫn để -1 và driver mặc định tắt. Chưa có pinout ESP32_BASE_BOARD_V1.2 nên chưa thể tuyên bố camera OV3660, ILI9488, MAX98357A/loa và 4 nút đã hoạt động đồng thời. INMP441 được để dự phòng; bài toán cử chỉ hiện không thu mic/ASR.
 
 Auto gửi một JPEG sau khi đếm ngược; không ghi LittleFS/NVS cho từng mẫu chưa xác nhận. Chỉ lưu UUID Manual đã nhận vào Cloud để phục hồi sau reboot, mã kết quả đã tiêu thụ và ACK của kết quả cuối. Loa tự phát tối đa một lần mỗi UUID; mất điện đúng lúc phát có thể làm câu bị thiếu, dùng Replay khi cần.

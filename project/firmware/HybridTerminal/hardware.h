@@ -37,6 +37,103 @@ public:
 static TerminalLCD lcd;
 #endif
 static bool lcdReady=false, cameraReady=false;
+static int currentVolumePercent = AUDIO_GAIN_PERCENT;
+
+static void drawDisplayDemo() {
+#if TFT_KIND
+  if (!lcdReady) return;
+  lcd.fillScreen(0x0000);
+  lcd.setTextSize(2);
+  lcd.setTextColor(0x07FF);
+  lcd.setCursor(55, 18);
+  lcd.print("GESTURE TO SPEECH");
+  lcd.setTextSize(1);
+  lcd.setTextColor(0xFFFF);
+  lcd.setCursor(55, 55);
+  lcd.print("CAMERA / RESULT DISPLAY");
+  lcd.drawRect(18, 82, lcd.width() - 36, 118, 0x07E0);
+  lcd.setCursor(35, 118);
+  lcd.print("CAMERA FRAME");
+  lcd.setCursor(35, 138);
+  lcd.print("Large preview area");
+  lcd.setCursor(35, 158);
+  lcd.print("Ready for hand gesture");
+  lcd.fillRect(18, 220, lcd.width() - 36, 42, 0x2348);
+  lcd.setTextColor(0xFFFF);
+  lcd.setCursor(35, 237);
+  lcd.print("Press NEXT to recognize");
+  lcd.setCursor(35, lcd.height() - 42);
+  lcd.setTextColor(0xFFE0);
+  lcd.print("VOL+  VOL-  MANUAL  POWER");
+#endif
+}
+
+static void drawGreetingScreen() {
+#if TFT_KIND
+  if (!lcdReady) return;
+  lcd.fillScreen(0x0000);
+  lcd.setTextColor(0x07FF); lcd.setTextSize(2); lcd.setCursor(42, 22);
+  lcd.print("XIN CHAO THAY");
+  lcd.setTextSize(1); lcd.setTextColor(0xFFFF);
+  lcd.setCursor(28, 72); lcd.print("Xin chao thay va cac ban");
+  lcd.setCursor(28, 94); lcd.print("den voi buoi Demo");
+  lcd.setCursor(28, 116); lcd.print("bai tap lon.");
+  lcd.setCursor(28, lcd.height() - 30); lcd.print("Nhan NEXT de bat dau");
+#endif
+}
+
+static void drawCameraView(float held, bool automatic) {
+#if TFT_KIND
+  if (!lcdReady) return;
+  lcd.fillScreen(0x0000);
+  lcd.setTextColor(0x07E0); lcd.setTextSize(2); lcd.setCursor(18, 12);
+  lcd.print(automatic ? "AUTO - GIU TAY" : "CAMERA");
+  lcd.setTextSize(1); lcd.setTextColor(0xFFFF);
+  lcd.setCursor(18, 43); lcd.printf("Hold %.1f / 2.0 sec", held);
+  lcd.drawRect(10, 62, lcd.width() - 20, lcd.height() - 112, 0xFFFF);
+  lcd.setCursor(30, lcd.height() - 38); lcd.print("NEXT: chup  MANUAL: dashboard");
+#endif
+}
+
+static void drawResultView(const String &gesture, const String &meaning) {
+#if TFT_KIND
+  if (!lcdReady) return;
+  lcd.fillScreen(0x0000);
+  lcd.setTextColor(0x07FF); lcd.setTextSize(2); lcd.setCursor(42, 14);
+  lcd.print("KET QUA");
+  lcd.setTextColor(0xFFE0); lcd.setTextSize(3); lcd.setCursor(35, 70);
+  lcd.print(gesture);
+  lcd.setTextColor(0xFFFF); lcd.setTextSize(1); lcd.setCursor(25, 145);
+  lcd.print("Y NGHIA / LOA DOC:");
+  lcd.setCursor(25, 170); lcd.print(meaning);
+  lcd.setTextColor(0x07E0); lcd.setCursor(25, lcd.height() - 38);
+  lcd.print("NEXT: nhan dien tiep  MANUAL: dashboard");
+#endif
+}
+
+static void drawManualView() {
+#if TFT_KIND
+  if (!lcdReady) return;
+  lcd.fillScreen(0x0000);
+  lcd.setTextColor(0x07FF); lcd.setTextSize(2); lcd.setCursor(45, 28);
+  lcd.print("MANUAL MODE");
+  lcd.setTextColor(0xFFFF); lcd.setTextSize(1); lcd.setCursor(32, 90);
+  lcd.print("Thao tac chup anh tren Dashboard");
+  lcd.setCursor(32, 115); lcd.print("Ket qua va y nghia se hien o day");
+  lcd.setCursor(32, 140); lcd.print("va phat qua loa dong bo.");
+  lcd.setCursor(32, lcd.height() - 38); lcd.print("NEXT: quay lai nhan dien");
+#endif
+}
+
+static void drawStandbyView() {
+#if TFT_KIND
+  if (!lcdReady) return;
+  lcd.fillScreen(0x0000); lcd.setTextColor(0x07FF); lcd.setTextSize(2);
+  lcd.setCursor(70, 120); lcd.print("STANDBY");
+  lcd.setTextSize(1); lcd.setTextColor(0xFFFF); lcd.setCursor(62, 165);
+  lcd.print("Nhan POWER de bat lai");
+#endif
+}
 
 // No pin is guessed; even an enabled driver refuses incomplete/duplicate mappings.
 static bool validatePins() {
@@ -100,13 +197,14 @@ static int screenHeight(){
 static void drawCamera(const uint8_t* jpg,size_t len,float held){
 #if TFT_KIND
   if(!lcdReady)return;
-  float scale=fminf(lcd.width()/640.f,(lcd.height()-48)/480.f);
-  int x=(lcd.width()-int(640*scale))/2,y=24+(lcd.height()-48-int(480*scale))/2;
-  lcd.drawJpg(jpg,len,x,y,lcd.width(),lcd.height()-48,0,0,scale);
-  lcd.fillRect(0,0,lcd.width(),24,0);lcd.setTextColor(0xFFFF);lcd.setTextSize(1);
-  lcd.setCursor(4,5);lcd.printf("CAMERA  Hold %.1f / 2s",held);
-  lcd.fillRect(0,lcd.height()-23,lcd.width(),23,0);lcd.setCursor(4,lcd.height()-18);
-  lcd.print("HOME: Menu  SELECT: Freeze/Capture");
+  float scale=fminf((lcd.width()-20)/640.f,(lcd.height()-112)/480.f);
+  int x=(lcd.width()-int(640*scale))/2,y=62+(lcd.height()-112-int(480*scale))/2;
+  lcd.drawJpg(jpg,len,x,y,int(640*scale),int(480*scale),0,0,scale);
+  lcd.fillRect(0,0,lcd.width(),52,0);lcd.setTextColor(0x07E0);lcd.setTextSize(2);
+  lcd.setCursor(18,12);lcd.print("CAMERA");
+  lcd.setTextSize(1);lcd.setTextColor(0xFFFF);lcd.setCursor(18,38);lcd.printf("Hold %.1f / 2.0 sec",held);
+  lcd.fillRect(0,lcd.height()-42,lcd.width(),42,0);lcd.setCursor(18,lcd.height()-27);
+  lcd.print("NEXT: chup   MANUAL: dashboard");
 #endif
 }
 static void drawScreen(const uint8_t* jpg,size_t len){
@@ -144,7 +242,7 @@ static bool playWav(uint8_t* wav,size_t length,std::atomic<bool>& cancel){
   bool ok=true;
   for(size_t offset=0;offset<bytes&&!cancel;){
     size_t n=fmin(size_t(1024),bytes-offset);
-    for(size_t i=0;i<n;i+=2){int16_t value=int16_t(read16(wav+data+offset+i));value=int32_t(value)*constrain(AUDIO_GAIN_PERCENT,0,100)/100;
+    for(size_t i=0;i<n;i+=2){int16_t value=int16_t(read16(wav+data+offset+i));value=int32_t(value)*constrain(currentVolumePercent,0,100)/100;
       wav[data+offset+i]=value&255;wav[data+offset+i+1]=(value>>8)&255;}
     if(output.write(wav+data+offset,n)!=n){ok=false;break;}offset+=n;
   }
