@@ -1,4 +1,4 @@
-import { el, requestId } from './api.js';
+import { el, requestId } from './api.js?v=cloud-v6-camera-upload-3';
 export class DeviceController {
   constructor(api, ui) {
     this.api = api;
