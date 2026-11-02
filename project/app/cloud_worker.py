@@ -3,10 +3,12 @@
 import asyncio
 import contextlib
 import hashlib
+import json
 import logging
 import os
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from app.supabase_client import SupabaseClient, CloudError
 from app.local_jobs import LocalJobs
@@ -69,7 +71,7 @@ class CloudRuntime:
         frames = validate_input(rid, owner, images[0][0], options)
         if len(frames) != len(images):
             raise ValueError("invalid_frame_count")
-        await self.call(self.jobs.put_image, rid, device, owner, images[0][1])
+        await self.call(self.jobs.put_image, rid, device, owner, images[0][1], options)
         events = []
         for index, frame in enumerate(frames):
             raw = images[index][1]
@@ -167,7 +169,9 @@ class CloudRuntime:
         heartbeat = asyncio.create_task(self.renew(job))
         try:
             raw = await self.call(self.client.download, "ai-images", frames[0]["path"])
-            row = await self.call(self.jobs.put_image, rid, job["device_id"], owner, raw)
+            row = await self.call(
+                self.jobs.put_image, rid, job["device_id"], owner, raw, options
+            )
             event = (
                 row["result"]
                 if row["result"] and row["result"].get("pipeline_version") == 6
@@ -328,6 +332,7 @@ class CloudRuntime:
             job = None
             self.wake.clear()
             try:
+                await self.sync_local_outbox()
                 rows = await self.call(
                     self.client.rpc, "ai_claim_v6", {"p_worker": self.worker, "p_seconds": 120}
                 )
@@ -373,3 +378,53 @@ class CloudRuntime:
                 await asyncio.wait_for(self.wake.wait(), timeout=delay)
             except asyncio.TimeoutError:
                 pass
+
+    async def sync_local_outbox(self):
+        """Publish completed offline results after Supabase reconnects."""
+        for row in await self.call(self.jobs.pending):
+            result = row.get("result") or {}
+            if not result.get("fallback") or not self.client:
+                continue
+            image = self.data / "hybrid" / (row["id"] + ".jpg")
+            if not image.is_file():
+                continue
+            image_path = f"{row['owner']}/{row['id']}.jpg"
+            await self.call(
+                self.client.upload, "ai-images", image_path, image.read_bytes(), "image/jpeg"
+            )
+            payload = dict(row["input"])
+            payload["pipeline_version"] = 6
+            payload["source"] = payload.get("source", "browser")
+            payload["frames"] = [
+                {"path": image_path, "ms": 0, "sha256": hashlib.sha256(image.read_bytes()).hexdigest()}
+            ]
+            try:
+                await self.call(
+                    self.client.request,
+                    "POST",
+                    "/rest/v1/ai_requests",
+                    {
+                        "id": row["id"],
+                        "device_id": row["device"],
+                        "owner_id": row["owner"],
+                        "image_path": image_path,
+                        "input": payload,
+                    },
+                    headers={"Prefer": "return=minimal"},
+                )
+            except CloudError as exc:
+                if exc.status != 409:
+                    raise
+            public = {key: value for key, value in result.items() if key != "audio_url"}
+            await self.call(
+                self.client.request,
+                "PATCH",
+                "/rest/v1/ai_requests?id=eq." + row["id"],
+                {
+                    "status": "completed",
+                    "result": public,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            await self.call(self.jobs.mark_synced, row["id"], row["updated"])
+            self.state["offline_synced"] = self.state.get("offline_synced", 0) + 1

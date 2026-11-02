@@ -12,15 +12,18 @@ class LocalJobs:
         with self.connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute(
-                "CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, device TEXT NOT NULL, owner TEXT NOT NULL, digest TEXT NOT NULL, result TEXT, synced INTEGER DEFAULT 0, displayed INTEGER, played INTEGER, updated REAL NOT NULL)"
+                "CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, device TEXT NOT NULL, owner TEXT NOT NULL, digest TEXT NOT NULL, result TEXT, input TEXT NOT NULL DEFAULT '{}', synced INTEGER DEFAULT 0, displayed INTEGER, played INTEGER, updated REAL NOT NULL)"
             )
+            columns = {row[1] for row in db.execute("PRAGMA table_info(jobs)")}
+            if "input" not in columns:
+                db.execute("ALTER TABLE jobs ADD COLUMN input TEXT NOT NULL DEFAULT '{}'")
 
     def connect(self):
         db = sqlite3.connect(self.db, timeout=15)
         db.row_factory = sqlite3.Row
         return closing_connection(db)
 
-    def put_image(self, request_id, device, owner, raw):
+    def put_image(self, request_id, device, owner, raw, input_data=None):
         digest = hashlib.sha256(raw).hexdigest()
         with self.connect() as db:
             row = db.execute("SELECT * FROM jobs WHERE id=?", (request_id,)).fetchone()
@@ -30,8 +33,15 @@ class LocalJobs:
                 raise ValueError("request_id_conflict")
             if not row:
                 db.execute(
-                    "INSERT INTO jobs(id,device,owner,digest,updated) VALUES(?,?,?,?,?)",
-                    (request_id, device, owner, digest, time.time()),
+                    "INSERT INTO jobs(id,device,owner,digest,input,updated) VALUES(?,?,?,?,?,?)",
+                    (
+                        request_id,
+                        device,
+                        owner,
+                        digest,
+                        json.dumps(input_data or {}, ensure_ascii=False),
+                        time.time(),
+                    ),
                 )
         path = self.root / (request_id + ".jpg")
         if not path.exists():
@@ -47,6 +57,7 @@ class LocalJobs:
             return None
         value = dict(row)
         value["result"] = json.loads(value["result"]) if value["result"] else None
+        value["input"] = json.loads(value["input"]) if value["input"] else {}
         return value
 
     def complete(self, request_id, result):
