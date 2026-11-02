@@ -36,7 +36,7 @@ def screen_jpeg(state, width, height):
         text = "Chọn Auto hoặc Manual để bắt đầu"
     elif state["view"] == "paused":
         title = "Đã dừng camera"
-        text = "Bấm Select để nhận diện ảnh đã dừng hoặc mở menu để tiếp tục"
+        text = "Bấm NEXT để nhận diện tiếp hoặc MANUAL để thao tác trên Dashboard"
     else:
         title = "Đang chờ camera"
         text = "Giữ cử chỉ rõ trong khung hình"
@@ -63,7 +63,7 @@ def screen_jpeg(state, width, height):
         y += selected.size + 7
     draw.line((12, height - 33, width - 12, height - 33), fill="#2b3f58")
     draw.text(
-        (14, height - 27), "HOME: Menu    UP / DOWN    SELECT: Tiếp tục", font=small, fill="#6de2bf"
+        (14, height - 27), "NEXT: Nhận diện tiếp    MANUAL: Dashboard", font=small, fill="#6de2bf"
     )
     result = BytesIO()
     image.save(result, format="JPEG", quality=90)

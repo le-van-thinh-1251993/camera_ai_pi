@@ -31,7 +31,7 @@ class CloudRuntime:
         self.completed = {}
         self.shared_voices = set()
         self.enabled = os.getenv("CLOUD_ENABLED", "1") == "1"
-        self.local_fallback = os.getenv("CLOUD_LOCAL_FALLBACK", "0") == "1"
+        self.local_fallback = os.getenv("CLOUD_LOCAL_FALLBACK", "1") == "1"
         self.state = {
             "enabled": self.enabled,
             "connected": False,
@@ -44,7 +44,7 @@ class CloudRuntime:
             self.owners[name] = str(uuid.UUID(owner))
         self.worker = os.getenv("CLOUD_WORKER_ID", "pi-ai-01")
         self.lan_device_id = os.getenv("CLOUD_DEVICE_ID", "esp32-01").strip()
-        self.lan_owner_id = os.getenv("CLOUD_DEVICE_UID", "").strip()
+        self.lan_owner_id = os.getenv("CLOUD_DEVICE_UID", "").strip().lower()
         self.wake = asyncio.Event()
         self.control_wake = asyncio.Event()
         self.active_until = 0
@@ -53,6 +53,7 @@ class CloudRuntime:
         self.controls = DeviceControl(self)
         self.retention = CloudRetention(self)
         self.offline_retries = {}
+        self.greeting_uploaded = False
 
     async def call(self, method, *args, **kwargs):
         return await asyncio.to_thread(method, *args, **kwargs)
@@ -294,10 +295,6 @@ class CloudRuntime:
                 "/rest/v1/ai_devices?select=id&limit=1",
             )
             self.state.update(connected=True, last_error=None)
-            try:
-                await self.ensure_greeting()
-            except Exception as exc:
-                log.warning("Greeting upload failed: %s", type(exc).__name__)
         except CloudError as exc:
             self.state.update(connected=False, last_error=exc.code)
         controls = asyncio.create_task(self.control_loop())
@@ -327,6 +324,7 @@ class CloudRuntime:
             path.read_bytes(),
             "audio/wav",
         )
+        self.greeting_uploaded = True
 
     async def maintenance_loop(self):
         while True:
@@ -371,6 +369,11 @@ class CloudRuntime:
                     self.client.rpc, "ai_claim_v6", {"p_worker": self.worker, "p_seconds": 120}
                 )
                 self.state.update(connected=True, last_error=None)
+                if not self.greeting_uploaded:
+                    try:
+                        await self.ensure_greeting()
+                    except Exception as exc:
+                        log.warning("Greeting upload failed: %s", type(exc).__name__)
                 if rows:
                     job = rows[0]
                     self.activity()
@@ -415,7 +418,12 @@ class CloudRuntime:
 
     async def sync_local_outbox(self):
         """Publish completed offline results after Supabase reconnects."""
-        for row in await self.call(self.jobs.pending):
+        excluded = {
+            request_id
+            for request_id, attempts in self.offline_retries.items()
+            if attempts >= 5
+        }
+        for row in await self.call(self.jobs.pending, excluded):
             result = row.get("result") or {}
             if not result.get("fallback") or not self.client:
                 continue

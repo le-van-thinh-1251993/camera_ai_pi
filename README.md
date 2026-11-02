@@ -102,9 +102,10 @@ Chọn **Cộng tất cả tay** khi cần cộng hai tay để đếm 6–10 ng
 
 ## Giao diện
 
-Khi Supabase tạm mất kết nối, dashboard upload/camera và ESP32 chỉ chuyển sang nhận
-diện cục bộ trên Pi khi chủ động đặt `CLOUD_LOCAL_FALLBACK=1`. Cấu hình mẫu mặc định
-`CLOUD_LOCAL_FALLBACK=0` để mọi ảnh đi qua Supabase.
+Khi có mạng, dashboard và ESP32 ưu tiên Supabase Cloud. Khi Supabase/Internet mất
+kết nối, Pi tự nhận diện cục bộ và ESP32 chuyển qua LAN hostname `ai-camera.local`.
+`CLOUD_LOCAL_FALLBACK=1` là mặc định để giữ luồng offline; đặt `0` chỉ khi muốn
+Cloud-only.
 Kết quả được lưu trong `DATA_DIR/hybrid/jobs.sqlite3` và vẫn xem được qua dashboard.
 
 Chỉ còn hai nguồn camera: điện thoại/máy đang mở trang và ESP32 qua Cloud/LAN. Video điện thoại vẽ trong canvas trong khung, có `playsinline`, không dùng fullscreen video của iPhone.

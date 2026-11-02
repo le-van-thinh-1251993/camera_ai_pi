@@ -18,10 +18,6 @@ static constexpr char WIFI_PASSWORD[] = WIFI_PASSWORD_VALUE;
 static constexpr char DEVICE_ID[] = "esp32-01";
 static constexpr char LAN_HOSTNAME[] = "ai-camera";
 static constexpr uint16_t LAN_PORT = 8000;
-#ifndef LAN_API_KEY_VALUE
-#define LAN_API_KEY_VALUE ""
-#endif
-
 // All hardware stays OFF until the actual board, driver and pin map are known.
 // Compile override -D flags are useful for checking disabled driver branches.
 #ifndef ENABLE_CAMERA

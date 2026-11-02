@@ -136,13 +136,29 @@ static void drawStandbyView() {
 #endif
 }
 
+static void drawError(const String &message) {
+#if TFT_KIND
+  if (!lcdReady) return;
+  lcd.fillScreen(0x0000);
+  lcd.setTextColor(0xF800); lcd.setTextSize(2); lcd.setCursor(24, 24);
+  lcd.print("LOI");
+  lcd.setTextColor(0xFFFF); lcd.setTextSize(1); lcd.setCursor(24, 80);
+  lcd.print(message);
+  lcd.setTextColor(0x07E0); lcd.setCursor(24, lcd.height() - 38);
+  lcd.print("NEXT: thu lai   MANUAL: Dashboard");
+#endif
+}
+
 // No pin is guessed; even an enabled driver refuses incomplete/duplicate mappings.
 static bool validatePins() {
   int used[64]; size_t count=0; bool ok=true;
   auto add=[&](int pin, bool required, bool output) {
     if(pin<0) {if(required) ok=false;return;}
     if(!GPIO_IS_VALID_GPIO(pin) || (output && !GPIO_IS_VALID_OUTPUT_GPIO(pin)) ||
-       (pin>=26 && pin<=32) || (pin>=35 && pin<=37)) {ok=false;return;}
+       (pin>=26 && pin<=32) || (pin>=35 && pin<=37) ||
+       pin==0 || pin==3 || pin==19 || pin==20 || pin==45 || pin==46) {
+      ok=false;return;
+    }
     for(size_t i=0;i<count;i++) if(used[i]==pin) ok=false;
     if(count<64) used[count++]=pin; else ok=false;
   };

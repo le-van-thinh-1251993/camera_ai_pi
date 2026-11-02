@@ -95,7 +95,7 @@ static void beginCapture(bool automatic, bool newRound) {
 }
 static void captureStep() {
   if(collecting&&millis()-captureStarted>6000){
-    collecting=false;pendingId="";Snapshot value=snapshot();value.running=false;value.view="paused";value.text="Camera chua co anh. Kiem tra camera va GPIO.";setState(value);return;
+    collecting=false;pendingId="";Snapshot value=snapshot();value.running=false;value.view="paused";value.text="Camera chua co anh. Kiem tra camera va GPIO.";setState(value);drawError(value.text);return;
   }
   if (!collecting || !frames[frameCount].data) return;
   if (collectingAuto && millis()-captureStarted < 2000) {
@@ -167,7 +167,15 @@ static void finalResult(JsonDocument &job) {
   Snapshot value = snapshot(); value.running = false; value.view = "result"; value.resultId = id;
   value.text = job["result"]["text"] | "Chua nhan dien duoc cu chi"; setState(value);
   bool screenLoaded = false;
-  String screenPath = job["screen_path"] | "";
+  String screenPath = localSubmitted
+    ? (job["result"]["screen_path"] | "")
+    : (job["screen_path"] | "");
+  audioPath = job["audio_path"] | "";
+  if (lastConsumed != id) {
+    lastConsumed = id; preferences.putString("consumed", id);
+    preferences.putBool("played", false); played = playAudio(audioPath);
+    preferences.putBool("played", played);
+  } else played = preferences.getBool("played", false);
   if (screenJpeg && ((localSubmitted && screenPath == "local") ||
                      (!localSubmitted && screenPath.startsWith(String(SB_UID) + "/")))) {
     size_t downloaded = 0;
@@ -182,18 +190,12 @@ static void finalResult(JsonDocument &job) {
   }
   if (!screenLoaded) drawResultView(job["result"]["gesture"] | "Unknown", value.text);
   displayed = lcdReady;
-  audioPath = job["audio_path"] | "";
-  if (lastConsumed != id) {
-    lastConsumed = id; preferences.putString("consumed", id);
-    preferences.putBool("played", false); played = playAudio(audioPath);
-    preferences.putBool("played", played);
-  } else played = preferences.getBool("played", false);
   if (localSubmitted) cloud.lanAck(DEVICE_ID, id, displayed, played);
   else queueAck(id, displayed, played);
   Serial.println(value.text); resetRequest();
 }
 static void handleAction(const Action &action) {
-  String name = action.name; Snapshot value = snapshot(); cancelAudio = true;
+  String name = action.name; Snapshot value = snapshot();
   if (name == "power") {
     systemOn = !systemOn;
     if (!systemOn) { value.running = false; value.view = "standby"; setState(value); resetRequest(); drawStandbyView(); }
@@ -201,8 +203,9 @@ static void handleAction(const Action &action) {
     return;
   }
   if (!systemOn) return;
-  if (name == "volume_up") { currentVolumePercent = min(100, currentVolumePercent + 10); return; }
-  if (name == "volume_down") { currentVolumePercent = max(0, currentVolumePercent - 10); return; }
+  if (name == "volume_up") { currentVolumePercent.store(min(100, currentVolumePercent.load() + 10)); return; }
+  if (name == "volume_down") { currentVolumePercent.store(max(0, currentVolumePercent.load() - 10)); return; }
+  cancelAudio = true;
   if (name == "next") {
     resetRequest(); menuOpen = false; value.mode = "auto"; value.view = "preview"; value.running = true; setState(value);
     beginCapture(true, true); return;
@@ -212,7 +215,7 @@ static void handleAction(const Action &action) {
   if (name == "replay") { playAudio(audioPath); return; }
   if (name == "greeting") { if (cloud.login()) playAudio(String(SB_UID) + "/greeting/voice.wav"); return; }
   resetRequest(); value.hold = 0; value.resultId = "";
-  if (name == "home") { value.view = "home"; value.running = false; }
+  if (name == "home") { value.view = "home"; value.running = false; drawDisplayDemo(); }
   else if (name == "stop") { value.view = "paused"; value.running = false; }
   else if (name == "auto") { menuOpen = false; value.mode = name; value.view = "preview"; value.running = true; }
   else if (name == "manual") { menuOpen = false; value.mode = name; value.view = "manual"; value.running = false; }
@@ -275,12 +278,12 @@ static void networkTask(void *) {
     if (requestStarted && millis() - requestStarted > RESULT_TIMEOUT_MS) {
       Snapshot value = snapshot(); value.running = false; value.view = "paused";
       value.text = "Het thoi gian cho ket qua. Vui long thu lai.";
-      setState(value); resetRequest(); requestStarted = 0; continue;
+      setState(value); drawError(value.text); resetRequest(); requestStarted = 0; continue;
     }
     if (!submitted) {
       localSubmitted = false;
       if (!submitRequest() && !submitLocalRequest()) {
-        if (++failures >= 4) { Snapshot value = snapshot(); value.running = false; value.view = "paused"; value.text = "Khong ket noi duoc Supabase"; setState(value); resetRequest(); }
+        if (++failures >= 4) { Snapshot value = snapshot(); value.running = false; value.view = "paused"; value.text = "Khong ket noi duoc Supabase"; setState(value); drawError(value.text); resetRequest(); }
         pollAt = millis() + 3000; continue;
       }
       submitted = true; requestStarted = millis(); failures = 0;
@@ -322,10 +325,10 @@ static void enqueue(const char *name) { Action action={}; strlcpy(action.name,na
 static void buttonEvent(int index) {
   const char *actions[]={"power","next","volume_up","volume_down","manual"};
   if (index == 2) {
-    cancelAudio = true; currentVolumePercent = min(100, currentVolumePercent + 10); return;
+    currentVolumePercent.store(min(100, currentVolumePercent.load() + 10)); return;
   }
   if (index == 3) {
-    cancelAudio = true; currentVolumePercent = max(0, currentVolumePercent - 10); return;
+    currentVolumePercent.store(max(0, currentVolumePercent.load() - 10)); return;
   }
   cancelAudio = true;
   enqueue(actions[index]);
@@ -342,7 +345,7 @@ void setup() {
   if(strlen(WIFI_SSID))WiFi.begin(WIFI_SSID,WIFI_PASSWORD);else WiFi.begin();
   MDNS.begin(DEVICE_ID);
   configTime(0,0,"pool.ntp.org","time.google.com");
-  Serial.println("Cloud first. Auto: one RAM frame after a 2-second countdown. p/n/+/ -/m = power/next/volume/manual.");
+  Serial.println("Cloud first. Auto: one RAM frame after a 2-second countdown. p/n/+/-/m = power/next/volume/manual.");
   xTaskCreate(networkTask,"cloud",16384,nullptr,1,nullptr);
 }
 void loop() {

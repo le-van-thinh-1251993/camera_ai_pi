@@ -76,15 +76,17 @@ class LocalJobs:
                 (int(displayed), int(played), time.time(), request_id),
             )
 
-    def pending(self):
+    def pending(self, excluded_ids=()):
+        excluded = tuple(excluded_ids)
         with self.connect() as db:
-            ids = [
-                r[0]
-                for r in db.execute(
-                    "SELECT id FROM jobs WHERE result IS NOT NULL AND synced=0 "
-                    "AND json_extract(result,'$.fallback')=1 ORDER BY updated LIMIT 10"
-                )
-            ]
+            query = (
+                "SELECT id FROM jobs WHERE result IS NOT NULL AND synced=0 "
+                "AND json_extract(result,'$.fallback')=1"
+            )
+            if excluded:
+                query += " AND id NOT IN (" + ",".join("?" for _ in excluded) + ")"
+            query += " ORDER BY updated LIMIT 10"
+            ids = [r[0] for r in db.execute(query, excluded)]
         return [self.get(i) for i in ids]
 
     def mark_synced(self, request_id, updated):
