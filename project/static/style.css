@@ -176,24 +176,19 @@ p {
   padding: 6px 10px;
   min-height: 36px;
 }
+#preview-panel {
+  grid-column: auto;
+}
 .preview {
   position: relative;
   width: 100%;
-  height: clamp(220px, 36dvh, 420px);
-  max-height: 420px;
-  aspect-ratio: 16 / 9;
+  height: 360px;
+  max-height: 360px;
   background: var(--image);
   border-radius: 12px;
   overflow: hidden;
   isolation: isolate;
   contain: paint;
-}
-.large-preview {
-  grid-column: 1/-1;
-}
-.large-preview .preview {
-  height: clamp(340px, 65dvh, 420px);
-  max-height: 420px;
 }
 #placeholder {
   height: 100%;
@@ -536,17 +531,12 @@ dialog::backdrop {
   section {
     padding: 12px;
   }
-  .wide,
-  .large-preview {
+  .wide {
     grid-column: auto;
   }
   .preview {
-    height: clamp(230px, 35dvh, 380px);
-    max-height: 380px;
-  }
-  .large-preview .preview {
-    height: clamp(230px, 35dvh, 380px);
-    max-height: 380px;
+    height: 300px;
+    max-height: 300px;
   }
   #phrase {
     font-size: clamp(30px, 8vw, 42px);

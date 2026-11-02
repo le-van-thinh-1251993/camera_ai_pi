@@ -1,10 +1,10 @@
-import { Api, el } from './js/api.js?v=cloud-v6-camera-upload-5';
-import { CloudJobs } from './js/cloud.js?v=cloud-v6-camera-upload-5';
-import { AudioPlayer } from './js/audio.js?v=cloud-v6-camera-upload-5';
-import { CameraController } from './js/camera.js?v=cloud-v6-camera-upload-5';
-import { UploadController } from './js/upload.js?v=cloud-v6-camera-upload-5';
-import { DeviceController } from './js/device.js?v=cloud-v6-camera-upload-5';
-import { watchEvents } from './js/events.js?v=cloud-v6-camera-upload-5';
+import { Api, el } from './js/api.js?v=cloud-v6-camera-upload-6';
+import { CloudJobs } from './js/cloud.js?v=cloud-v6-camera-upload-6';
+import { AudioPlayer } from './js/audio.js?v=cloud-v6-camera-upload-6';
+import { CameraController } from './js/camera.js?v=cloud-v6-camera-upload-6';
+import { UploadController } from './js/upload.js?v=cloud-v6-camera-upload-6';
+import { DeviceController } from './js/device.js?v=cloud-v6-camera-upload-6';
+import { watchEvents } from './js/events.js?v=cloud-v6-camera-upload-6';
 
 const api = new Api();
 let current = null,
@@ -154,7 +154,6 @@ const camera = new CameraController(jobs, {
   start: () => {
     clear();
     el('preview-panel').classList.remove('large-preview');
-    el('preview-size').setAttribute('aria-pressed', 'false');
     el('camera-options').open = false;
   },
   status: (message) => {
@@ -218,7 +217,6 @@ function setMode(next) {
   mode = next;
   if (mode === 'camera') {
     el('preview-panel').classList.remove('large-preview');
-    el('preview-size').setAttribute('aria-pressed', 'false');
   }
   for (const name of ['upload', 'camera']) {
     el('panel-' + name).hidden = name !== mode;
@@ -315,13 +313,6 @@ el('greeting').onclick = async () => {
 el('settings-open').onclick = () => el('settings-dialog').showModal();
 el('settings-close').onclick = () => el('settings-dialog').close();
 el('connect').onclick = connect;
-el('preview-size').onclick = () => {
-  el('preview-panel').classList.toggle('large-preview');
-  el('preview-size').setAttribute(
-    'aria-pressed',
-    String(el('preview-panel').classList.contains('large-preview')),
-  );
-};
 el('theme').onclick = () => {
   const light = document.documentElement.dataset.theme !== 'light';
   document.documentElement.dataset.theme = light ? 'light' : 'dark';
