@@ -1,10 +1,10 @@
-import { Api, el } from './js/api.js?v=cloud-v6-camera-upload-3';
-import { CloudJobs } from './js/cloud.js?v=cloud-v6-camera-upload-3';
-import { AudioPlayer } from './js/audio.js?v=cloud-v6-camera-upload-3';
-import { CameraController } from './js/camera.js?v=cloud-v6-camera-upload-3';
-import { UploadController } from './js/upload.js?v=cloud-v6-camera-upload-3';
-import { DeviceController } from './js/device.js?v=cloud-v6-camera-upload-3';
-import { watchEvents } from './js/events.js?v=cloud-v6-camera-upload-3';
+import { Api, el } from './js/api.js?v=cloud-v6-camera-upload-4';
+import { CloudJobs } from './js/cloud.js?v=cloud-v6-camera-upload-4';
+import { AudioPlayer } from './js/audio.js?v=cloud-v6-camera-upload-4';
+import { CameraController } from './js/camera.js?v=cloud-v6-camera-upload-4';
+import { UploadController } from './js/upload.js?v=cloud-v6-camera-upload-4';
+import { DeviceController } from './js/device.js?v=cloud-v6-camera-upload-4';
+import { watchEvents } from './js/events.js?v=cloud-v6-camera-upload-4';
 
 const api = new Api();
 let current = null,
