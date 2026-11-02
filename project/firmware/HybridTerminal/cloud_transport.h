@@ -3,6 +3,8 @@
 #include <ArduinoJson.h>
 #include <NetworkClientSecure.h>
 #include <HTTPClient.h>
+#include <WiFiClient.h>
+#include <ESPmDNS.h>
 #include <esp_heap_caps.h>
 #include <time.h>
 #if __has_include("secrets.h")
@@ -34,6 +36,7 @@ class BoundedSink : public Stream {
 
 class CloudTransport {
   NetworkClientSecure socket;
+  WiFiClient lanSocket;
   HTTPClient http;
   String token;
   uint32_t expires = 0, retryAfter = 0;
@@ -107,5 +110,70 @@ class CloudTransport {
     if (!path.startsWith(String(SB_UID) + "/")) return false;
     return request("GET", "/storage/v1/object/authenticated/ai-results/" + path,
                    nullptr, 0, "application/octet-stream", data, capacity, length) == 200;
+  }
+  bool lanJson(const String &path, const String &body, JsonDocument &result) {
+    HTTPClient local;
+    local.setConnectTimeout(1200);
+    local.setTimeout(5000);
+    IPAddress host = MDNS.queryHost(LAN_HOSTNAME);
+    if (!host) return false;
+    String url = "http://" + host.toString() + ":" + String(LAN_PORT) + path;
+    if (!local.begin(lanSocket, url)) return false;
+    local.addHeader("X-LAN-Key", LAN_API_KEY_VALUE);
+    local.addHeader("Content-Type", "application/json");
+    int code = local.POST(body);
+    String text = code >= 200 && code < 300 ? local.getString() : "";
+    local.end();
+    return code >= 200 && code < 300 && !deserializeJson(result, text);
+  }
+  bool lanRecognize(const String &device, const String &id, const uint8_t *data,
+                    size_t length, bool automatic, bool countAll, unsigned retry,
+                    JsonDocument &result) {
+    HTTPClient local;
+    local.setConnectTimeout(1200);
+    local.setTimeout(12000);
+    IPAddress host = MDNS.queryHost(LAN_HOSTNAME);
+    if (!host) return false;
+    String url = "http://" + host.toString() + ":" + String(LAN_PORT) +
+                 "/api/lan/device/" + device + "/recognize";
+    if (!local.begin(lanSocket, url)) return false;
+    local.addHeader("X-LAN-Key", LAN_API_KEY_VALUE);
+    local.addHeader("X-Request-ID", id);
+    local.addHeader("X-Capture-Mode", automatic ? "auto" : "manual");
+    local.addHeader("X-Count-All", countAll ? "true" : "false");
+    local.addHeader("X-Retry-Index", String(retry));
+    local.addHeader("Content-Type", "image/jpeg");
+    int code = local.POST(const_cast<uint8_t *>(data), length);
+    String text = code >= 200 && code < 300 ? local.getString() : "";
+    local.end();
+    return code >= 200 && code < 300 && !deserializeJson(result, text);
+  }
+  bool lanAudio(const String &device, const String &id, uint8_t *data,
+                size_t capacity, size_t &length) {
+    HTTPClient local;
+    local.setConnectTimeout(1200);
+    local.setTimeout(8000);
+    IPAddress host = MDNS.queryHost(LAN_HOSTNAME);
+    if (!host) return false;
+    String url = "http://" + host.toString() + ":" + String(LAN_PORT) +
+                 "/api/lan/device/" + device + "/jobs/" + id + "/audio.wav";
+    if (!local.begin(lanSocket, url)) return false;
+    local.addHeader("X-LAN-Key", LAN_API_KEY_VALUE);
+    int code = local.GET();
+    length = 0;
+    if (code == 200) {
+      BoundedSink sink(data, capacity);
+      int read = local.writeToStream(&sink);
+      length = sink.length;
+      code = read >= 0 && !sink.overflow ? 200 : -1;
+    }
+    local.end();
+    return code == 200;
+  }
+  bool lanAck(const String &device, const String &id, bool displayed, bool played) {
+    JsonDocument body, result;
+    body["request_id"] = id; body["displayed"] = displayed; body["played"] = played;
+    String text; serializeJson(body, text);
+    return lanJson("/api/lan/device/" + device + "/jobs/" + id + "/ack", text, result);
   }
 };

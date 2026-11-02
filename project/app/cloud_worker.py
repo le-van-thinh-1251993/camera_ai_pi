@@ -43,6 +43,8 @@ class CloudRuntime:
         if name and owner:
             self.owners[name] = str(uuid.UUID(owner))
         self.worker = os.getenv("CLOUD_WORKER_ID", "pi-ai-01")
+        self.lan_device_id = os.getenv("CLOUD_DEVICE_ID", "esp32-01").strip()
+        self.lan_owner_id = os.getenv("CLOUD_DEVICE_UID", "").strip()
         self.wake = asyncio.Event()
         self.control_wake = asyncio.Event()
         self.active_until = 0

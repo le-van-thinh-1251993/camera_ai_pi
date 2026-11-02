@@ -17,6 +17,7 @@ from app.vision_engine import Engine
 from app.cloud_worker import CloudRuntime
 from app.cloud_web import attach_cloud_web
 from app.cloud_control import attach_cloud_control
+from app.lan_web import attach_lan_web
 
 DATA = Path(os.getenv("DATA_DIR", str(BASE / "data"))).resolve()
 for directory in (DATA, DATA / "audio", DATA / "logs", DATA / "hybrid"):
@@ -33,6 +34,7 @@ logging.basicConfig(
 log = logging.getLogger("ai-camera")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 KEY = os.getenv("API_KEY", "").strip()
+LAN_KEY = os.getenv("LAN_API_KEY", "").strip() or KEY
 PHRASES = json.loads((BASE / "config/gestures.json").read_text(encoding="utf-8"))
 engine = None
 gate = asyncio.Lock()
@@ -138,6 +140,7 @@ async def lifespan(app):
         )
     engine = await asyncio.to_thread(Engine)
     app.state.cloud_runtime = CloudRuntime(DATA, recognize, commit, voice)
+    app.state.lan_api_key = LAN_KEY
     task = asyncio.create_task(app.state.cloud_runtime.run())
     try:
         yield
@@ -312,3 +315,4 @@ async def retired(path: str = ""):
 
 attach_cloud_web(app, auth)
 attach_cloud_control(app, auth)
+attach_lan_web(app)

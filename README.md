@@ -1,14 +1,14 @@
 # AI Camera Cloud v6
 
-Bản nâng cấp theo review ngày 30/10/2026. **Ảnh tải lên, camera điện thoại và ESP32, Auto và Manual đều gửi ảnh qua Supabase Storage → PostgreSQL → worker Pi → Supabase → giao diện/thiết bị.** Không có đường nhận diện LAN dự phòng trong bản này. Pi vẫn chạy MediaPipe/OpenCV; Supabase là nơi nhận ảnh, xếp hàng và lưu kết quả.
+Bản nâng cấp theo review ngày 30/10/2026. **Ảnh tải lên, camera điện thoại và ESP32, Auto và Manual đều có đường Cloud và LAN.** Khi Supabase mất kết nối, Pi nhận diện trực tiếp bằng MediaPipe/OpenCV; khi mạng trở lại, outbox đồng bộ ngược lên Supabase.
 
 ## Cài bản cập nhật
 
 Trên Windows PowerShell, chép ZIP mới lên Pi rồi SSH:
 
 ```powershell
-scp "C:\Users\minh.nl\Documents\Codex\2026-10-22\referenced-chatgpt-conversation-this-is-an\outputs\ai-camera-cloud-v6-single-network-fix.zip" lethinh@192.168.0.94:~/
-ssh lethinh@192.168.0.94
+scp "C:\Users\minh.nl\Documents\Codex\2026-10-22\referenced-chatgpt-conversation-this-is-an\outputs\ai-camera-cloud-v6-single-network-fix.zip" lethinh@ai-camera.local:~/
+ssh lethinh@ai-camera.local
 ```
 
 Nếu ZIP ở thư mục khác, dùng đúng đường dẫn thực tế. Trên Pi:
@@ -45,6 +45,25 @@ Nếu chưa muốn public dashboard, tắt tunnel:
 sudo systemctl disable --now ai-camera-ngrok
 ```
 
+## LAN hostname và fallback ESP32
+
+Pi phải có hostname mDNS cố định `ai-camera.local`; địa chỉ IP có thể thay đổi theo
+router mà không cần sửa firmware:
+
+```bash
+sudo apt-get install -y avahi-daemon
+sudo hostnamectl set-hostname ai-camera
+sudo systemctl enable --now avahi-daemon
+getent hosts ai-camera.local
+```
+
+Đặt `LAN_API_KEY` trong `.env` trên Pi và chép cùng giá trị vào
+`firmware/HybridTerminal/secrets.h` dưới macro `LAN_API_KEY_VALUE`. Nếu để trống trên Pi,
+server dùng lại `API_KEY`. ESP32 ưu tiên Supabase; khi Cloud lỗi, nó gửi JPEG,
+trạng thái, ACK và nhận kết quả/audio qua `http://ai-camera.local:8000`. Dữ liệu
+được lưu vào `data/hybrid/jobs.sqlite3`, sau đó worker upload lại ảnh, audio và
+kết quả khi Cloud hồi phục.
+
 ## SQL đã bổ sung
 
 Bạn đã chạy `003_cloud_only.sql` và `004_worker_version.sql` trong phiên làm việc này. File nằm trong `migrations/` để quản lý phiên bản; không cần chạy lại khi cập nhật trên cùng project đã áp dụng.
@@ -65,13 +84,11 @@ Chọn **Cộng tất cả tay** khi cần cộng hai tay để đếm 6–10 ng
 
 ## Giao diện
 
-Khi Supabase tạm mất kết nối, dashboard upload/camera sẽ chuyển sang nhận diện cục bộ
-trên Pi nếu `CLOUD_LOCAL_FALLBACK=1` (mặc định trong cấu hình mẫu). Kết quả được lưu
-trong `DATA_DIR/hybrid/jobs.sqlite3` và vẫn xem được qua dashboard. ESP32 vẫn cần
-Supabase để gửi ảnh và nhận lệnh; khi Cloud khôi phục, worker tiếp tục xử lý các job
-Cloud đang chờ.
+Khi Supabase tạm mất kết nối, dashboard upload/camera và ESP32 sẽ chuyển sang nhận
+diện cục bộ trên Pi nếu `CLOUD_LOCAL_FALLBACK=1` (mặc định trong cấu hình mẫu).
+Kết quả được lưu trong `DATA_DIR/hybrid/jobs.sqlite3` và vẫn xem được qua dashboard.
 
-Chỉ còn hai nguồn camera: điện thoại/máy đang mở trang và ESP32 qua Cloud. Video điện thoại vẽ trong canvas trong khung, có `playsinline`, không dùng fullscreen video của iPhone.
+Chỉ còn hai nguồn camera: điện thoại/máy đang mở trang và ESP32 qua Cloud/LAN. Video điện thoại vẽ trong canvas trong khung, có `playsinline`, không dùng fullscreen video của iPhone.
 
 Khung ảnh mặc định lớn hơn bản v5, có nút **Phóng to ảnh**, nút chạm 44 px trở lên, chữ gợi ý 14 px và chế độ sáng/tối. Màn nhỏ có thể cần cuộn; chế độ phóng to ưu tiên ảnh thay vì ép ảnh quá nhỏ. Thông số kỹ thuật vẫn ở mục mở rộng. JS được tách thành camera, upload, Cloud queue, âm thanh, thiết bị và sự kiện.
 
@@ -93,7 +110,7 @@ Với ESP32-S3 N16R8, chọn flash/PSRAM/partition theo tài liệu module. Ki�
 
 ## Xác thực và ngrok
 
-Mọi API ảnh, kết quả, lịch sử và điều khiển yêu cầu `API_KEY`. App từ chối khởi động khi mở ngoài loopback mà key rỗng. `/health` công khai chỉ trả trạng thái cơ bản; phiên bản và mã lỗi ở `/api/diagnostics` có xác thực.
+API dashboard ảnh, kết quả, lịch sử và điều khiển yêu cầu `API_KEY`; endpoint ESP32 LAN dùng `LAN_API_KEY`. App từ chối khởi động khi mở ngoài loopback mà key rỗng. `/health` công khai chỉ trả trạng thái cơ bản; phiên bản và mã lỗi ở `/api/diagnostics` có xác thực.
 
 Có thể thêm Basic Auth của ngrok bằng mẫu `project/examples/ngrok-traffic-policy.example.yml`. Tạo bản riêng, thay mật khẩu mẫu và dùng Traffic Policy của ngrok khi mở tunnel. Không dùng API key của Supabase làm mật khẩu đăng nhập web. Tham khảo [ngrok Basic Auth](https://ngrok.com/docs/gateway/traffic-policy/actions/basic-auth). Chính sách ngrok là cấu hình tùy chọn, chưa áp dụng vào tài khoản ngrok của bạn trong phiên này.
 

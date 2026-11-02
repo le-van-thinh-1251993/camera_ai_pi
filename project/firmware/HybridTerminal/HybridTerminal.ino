@@ -25,6 +25,8 @@ static int menuIndex = 0;
 static String pendingId, lastConsumed, audioPath, lastControl;
 static unsigned frameCount = 0, targetFrames = 0, attempt = 0;
 static bool collecting = false, submitted = false, collectingAuto = false;
+static bool localSubmitted = false;
+static JsonDocument localJob;
 static bool manualPersisted = false;
 static uint32_t pollAt = 0, syncAt = 0;
 static uint32_t captureStarted = 0;
@@ -76,7 +78,7 @@ static void flushAck() {
   } else next = millis() + 15000;
 }
 static void resetRequest() {
-  collecting = false; submitted = false; pendingId = ""; frameCount = 0;
+  collecting = false; submitted = false; localSubmitted = false; pendingId = ""; frameCount = 0;
   if(manualPersisted){preferences.remove("pending");manualPersisted=false;}
 }
 static void beginCapture(bool automatic, bool newRound) {
@@ -137,9 +139,21 @@ static bool submitRequest() {
   if (!collectingAuto) {preferences.putString("pending", pendingId);manualPersisted=true;}
   return true;
 }
+static bool submitLocalRequest() {
+  Snapshot value = snapshot();
+  localJob.clear();
+  if (!cloud.lanRecognize(DEVICE_ID, pendingId, frames[0].data, frames[0].size,
+                           collectingAuto, value.countAll, attempt, localJob)) return false;
+  if (localJob["result"]["id"].as<String>() != pendingId) return false;
+  localSubmitted = true;
+  return true;
+}
 static bool playAudio(const String &path) {
   auto wav = allocateBytes(MAX_WAV_BYTES); size_t length = 0; cancelAudio = false;
-  bool played = wav && cloud.download(path, wav, MAX_WAV_BYTES, length) && playWav(wav, length, cancelAudio);
+  bool downloaded = localSubmitted
+    ? cloud.lanAudio(DEVICE_ID, pendingId, wav, MAX_WAV_BYTES, length)
+    : cloud.download(path, wav, MAX_WAV_BYTES, length);
+  bool played = wav && downloaded && playWav(wav, length, cancelAudio);
   if (wav) free(wav); return played;
 }
 static void finalResult(JsonDocument &job) {
@@ -147,7 +161,7 @@ static void finalResult(JsonDocument &job) {
   String id = job["id"] | ""; bool displayed = false, played = false;
   Snapshot value = snapshot(); value.running = false; value.view = "result"; value.resultId = id;
   value.text = job["result"]["text"] | "Chua nhan dien duoc cu chi"; setState(value);
-  if (screenJpeg) {
+  if (screenJpeg && !localSubmitted) {
     auto image = allocateBytes(MAX_SCREEN_BYTES); size_t length = 0;
     if (image && cloud.download(job["screen_path"] | "", image, MAX_SCREEN_BYTES, length)) {
       xSemaphoreTake(screenMutex, portMAX_DELAY); memcpy(screenJpeg, image, length);
@@ -164,7 +178,9 @@ static void finalResult(JsonDocument &job) {
   uint32_t until=millis()+200;
   while(lcdReady&&!screenPresented&&int32_t(millis()-until)<0)delay(5);
   displayed=screenPresented.load();
-  queueAck(id, displayed, played); Serial.println(value.text); resetRequest();
+  if (localSubmitted) cloud.lanAck(DEVICE_ID, id, displayed, played);
+  else queueAck(id, displayed, played);
+  Serial.println(value.text); resetRequest();
 }
 static void handleAction(const Action &action) {
   String name = action.name; Snapshot value = snapshot(); cancelAudio = true;
@@ -182,7 +198,7 @@ static void handleAction(const Action &action) {
   else if (value.mode == "auto" && value.running) beginCapture(true, true);
 }
 static void exchangeState() {
-  if (int32_t(millis() - syncAt) < 0 || !cloud.login()) return;
+  if (int32_t(millis() - syncAt) < 0) return;
   Snapshot value = snapshot(); JsonDocument args, output;
   args["p_device"] = DEVICE_ID;
   JsonObject state = args["p_state"].to<JsonObject>();
@@ -192,7 +208,11 @@ static void exchangeState() {
   xSemaphoreTake(jpegMutex, portMAX_DELAY); state["has_frame"] = cachedSize > 0; xSemaphoreGive(jpegMutex);
   state["audio_status"] = value.view == "result" ? (ENABLE_I2S_AUDIO ? (preferences.getBool("played", false) ? "played" : "failed") : "disabled") : "idle";
   String body; serializeJson(args, body);
-  if (cloud.json("POST", "/rest/v1/rpc/ai_device_exchange", body, output) == 200) {
+  bool exchanged = cloud.login() &&
+                   cloud.json("POST", "/rest/v1/rpc/ai_device_exchange", body, output) == 200;
+  if (!exchanged) exchanged = cloud.lanJson(
+      "/api/lan/device/" + String(DEVICE_ID) + "/exchange", body, output);
+  if (exchanged) {
     String id = output["control"]["id"] | "";
     if (id.length() && id != lastControl) {
       Action action = {}; String name = output["control"]["action"] | "";
@@ -220,11 +240,19 @@ static void networkTask(void *) {
     if (int32_t(millis() - pollAt) < 0) { delay(30); continue; }
     if (!pendingId.length()) { delay(100); continue; }
     if (!submitted) {
-      if (!submitRequest()) {
+      localSubmitted = false;
+      if (!submitRequest() && !submitLocalRequest()) {
         if (++failures >= 4) { Snapshot value = snapshot(); value.running = false; value.view = "paused"; value.text = "Khong ket noi duoc Supabase"; setState(value); resetRequest(); }
         pollAt = millis() + 3000; continue;
       }
       submitted = true; failures = 0;
+    }
+    if (localSubmitted) {
+      JsonDocument job; job.set(localJob);
+      if (job["result"]["confirmed"] | false) finalResult(job);
+      else if (collectingAuto) { resetRequest(); attempt++; beginCapture(true, false); }
+      pollAt = millis() + 900;
+      continue;
     }
     JsonDocument rows;
     int code = cloud.json("GET", "/rest/v1/ai_requests?id=eq." + pendingId + "&select=id,status,result,audio_path,screen_path&limit=1", "", rows);
@@ -272,6 +300,7 @@ void setup() {
   if(hardwareOk)for(auto &button:buttons)if(button.pin>=0)pinMode(button.pin,BUTTON_ACTIVE_LOW?INPUT_PULLUP:INPUT_PULLDOWN);
   drawMenu(0); WiFi.mode(WIFI_STA); WiFi.setAutoReconnect(true); WiFi.persistent(true);
   if(strlen(WIFI_SSID))WiFi.begin(WIFI_SSID,WIFI_PASSWORD);else WiFi.begin();
+  MDNS.begin(DEVICE_ID);
   configTime(0,0,"pool.ntp.org","time.google.com");
   Serial.println("Cloud only. Auto: one RAM frame after a 2-second countdown. h/u/d/s = Home/Up/Down/Select. GPIO remains disabled until verified.");
   xTaskCreate(networkTask,"cloud",16384,nullptr,1,nullptr);

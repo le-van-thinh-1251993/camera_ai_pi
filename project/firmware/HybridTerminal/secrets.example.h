@@ -5,3 +5,4 @@ static constexpr char SB_KEY[] = "";
 static constexpr char SB_EMAIL[] = "";
 static constexpr char SB_PASSWORD[] = "";
 static constexpr char SB_UID[] = "";
+#define LAN_API_KEY_VALUE ""

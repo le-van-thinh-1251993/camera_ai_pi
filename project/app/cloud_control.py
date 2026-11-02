@@ -146,6 +146,7 @@ class DeviceControl:
             "view": state.get("view", "home"),
             "online": time.time() - info["seen"] < 30,
             "revision": int(control.get("issued", 0) * 1000),
+            "control": control,
             "capture_pending": control.get("action") == "capture"
             and control.get("id") != state.get("control_id"),
             "hold_seconds": float(state.get("hold", 0)),
@@ -169,7 +170,7 @@ def attach_cloud_control(app, auth):
         rt = getattr(app.state, "cloud_runtime", None)
         if not rt:
             raise HTTPException(503, "Đang khởi động")
-        if name not in rt.owners:
+        if name not in rt.owners and name != rt.lan_device_id:
             raise HTTPException(403, "Thiết bị chưa được đăng ký")
         return rt.controls
 
@@ -183,8 +184,9 @@ def attach_cloud_control(app, auth):
         before = c.get(device)
         try:
             c.command(device, body.action, body.request_id, body.count_all)
-            if not c.rt.client:
-                raise RuntimeError("Cloud unavailable")
+            if not c.rt.client or not c.rt.state["connected"]:
+                c.rt.activity()
+                return c.snapshot(device)
             await c.rt.call(
                 c.rt.client.request,
                 "PATCH",
