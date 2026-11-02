@@ -1,4 +1,4 @@
-import { el, sleep } from './api.js?v=cloud-v6-camera-upload-6';
+import { el, sleep } from './api.js?v=cloud-v6-camera-upload-7';
 export class CameraController {
   constructor(jobs, ui) {
     this.jobs = jobs;
@@ -60,6 +60,8 @@ export class CameraController {
       video.setAttribute('autoplay', '');
       video.setAttribute('muted', '');
       video.setAttribute('playsinline', '');
+      video.setAttribute('controlslist', 'nofullscreen');
+      video.setAttribute('disablepictureinpicture', '');
       video.setAttribute('webkit-playsinline', '');
       video.setAttribute('x5-playsinline', '');
       video.disablePictureInPicture = true;
