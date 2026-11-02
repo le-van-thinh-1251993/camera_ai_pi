@@ -416,6 +416,21 @@ class CloudRuntime:
                 if exc.status != 409:
                     raise
             public = {key: value for key, value in result.items() if key != "audio_url"}
+            audio_path = None
+            audio_url = result.get("audio_url")
+            if audio_url:
+                audio_name = Path(audio_url).name
+                audio_file = self.data / "audio" / audio_name
+                if audio_file.is_file() and len(audio_name) == 68 and audio_name.endswith(".wav"):
+                    digest = hashlib.sha256(audio_file.read_bytes()).hexdigest()
+                    audio_path = f"{row['owner']}/voices/{digest}.wav"
+                    await self.call(
+                        self.client.upload,
+                        "ai-results",
+                        audio_path,
+                        audio_file.read_bytes(),
+                        "audio/wav",
+                    )
             await self.call(
                 self.client.request,
                 "PATCH",
@@ -423,6 +438,7 @@ class CloudRuntime:
                 {
                     "status": "completed",
                     "result": public,
+                    "audio_path": audio_path,
                     "completed_at": datetime.now(timezone.utc).isoformat(),
                 },
             )
