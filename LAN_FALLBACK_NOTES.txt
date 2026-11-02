@@ -1,0 +1,35 @@
+AI CAMERA - LUU Y KHI MAT INTERNET
+
+1. Hostname LAN phai dung:
+   ai-camera.local
+
+2. Endpoint local:
+   http://ai-camera.local:8000
+
+3. Dieu kien:
+   - ESP32/phone va Raspberry Pi phai cung Wi-Fi/LAN.
+   - Pi phai dang chay ai-camera.service.
+   - Avahi/mDNS phai dang chay.
+
+4. Khong dung:
+   - Khong dung IP cu 192.168.0.94 vi IP co the thay doi.
+   - Khong dung ngrok khi mat Internet vi ngrok can Internet.
+
+5. Luong fallback:
+   - ESP32 uu tien Supabase.
+   - Neu Supabase/Internet loi, ESP32 gui anh qua ai-camera.local.
+   - Pi nhan dien local va luu vao data/hybrid/jobs.sqlite3.
+   - Khi Internet tro lai, worker dong bo ket qua, anh va audio len Supabase.
+
+6. Cau hinh key:
+   - Pi: LAN_API_KEY trong .env.
+   - ESP32: LAN_API_KEY_VALUE trong secrets.h.
+   - Neu Pi khong co LAN_API_KEY, Pi dung lai API_KEY.
+
+7. Kiem tra tren Pi:
+   getent hosts ai-camera.local
+   curl http://ai-camera.local:8000/health
+   systemctl is-active avahi-daemon
+   systemctl is-active ai-camera.service
+
+Khong commit/push thay doi Git neu chua co yeu cau ro rang tu chu project.

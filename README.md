@@ -47,8 +47,26 @@ sudo systemctl disable --now ai-camera-ngrok
 
 ## LAN hostname và fallback ESP32
 
-Pi phải có hostname mDNS cố định `ai-camera.local`; địa chỉ IP có thể thay đổi theo
-router mà không cần sửa firmware:
+### Hostname cần dùng khi mất Internet
+
+Khi mất Internet nhưng ESP32/điện thoại và Pi vẫn ở cùng Wi-Fi/LAN, dùng đúng
+hostname:
+
+```text
+ai-camera.local
+```
+
+Địa chỉ endpoint LAN là:
+
+```text
+http://ai-camera.local:8000
+```
+
+Không dùng IP `192.168.0.94` và không dùng link ngrok trong chế độ này. Ngrok cần
+Internet; hostname mDNS chỉ hoạt động khi thiết bị và Pi cùng mạng nội bộ.
+
+Pi phải có hostname mDNS `ai-camera.local`; địa chỉ IP có thể thay đổi theo router
+mà không cần sửa firmware:
 
 ```bash
 sudo apt-get install -y avahi-daemon
