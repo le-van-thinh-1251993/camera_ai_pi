@@ -1,4 +1,4 @@
-import { el, sleep } from './api.js?v=cloud-v6-camera-upload-7';
+import { el, sleep } from './api.js?v=cloud-v6-camera-upload-8';
 export class CameraController {
   constructor(jobs, ui) {
     this.jobs = jobs;
@@ -8,6 +8,10 @@ export class CameraController {
     this.frozen = false;
     this.media = null;
     this.busy = false;
+    this.video = document.createElement('video');
+    this.video.muted = true;
+    this.video.playsInline = true;
+    this.video.autoplay = true;
   }
   showPreview(url) {
     if (typeof this.ui.preview === 'function') this.ui.preview(url);
@@ -22,7 +26,7 @@ export class CameraController {
     this.media = null;
     this.running = false;
     this.busy = false;
-    el('camera-video').srcObject = null;
+    this.video.srcObject = null;
     el('live-preview').hidden = true;
     el('camera-start').disabled = false;
     el('camera-stop').disabled = true;
@@ -54,18 +58,7 @@ export class CameraController {
         return;
       }
       this.media = media;
-      const video = el('camera-video');
-      video.muted = true;
-      video.playsInline = true;
-      video.setAttribute('autoplay', '');
-      video.setAttribute('muted', '');
-      video.setAttribute('playsinline', '');
-      video.setAttribute('controlslist', 'nofullscreen');
-      video.setAttribute('disablepictureinpicture', '');
-      video.setAttribute('webkit-playsinline', '');
-      video.setAttribute('x5-playsinline', '');
-      video.disablePictureInPicture = true;
-      video.controls = false;
+      const video = this.video;
       video.srcObject = media;
       await video.play();
       if (generation !== this.generation) return;
@@ -118,7 +111,7 @@ export class CameraController {
     );
   }
   async capture(signal) {
-    const video = el('camera-video');
+    const video = this.video;
     while (!video.videoWidth || video.readyState < 2) await sleep(50, signal);
     const canvas = document.createElement('canvas'),
       scale = Math.min(1, 1280 / Math.max(video.videoWidth, video.videoHeight));

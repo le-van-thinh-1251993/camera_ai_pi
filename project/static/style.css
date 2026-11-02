@@ -216,16 +216,6 @@ p {
 #photo {
   cursor: crosshair;
 }
-.capture-video {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  left: -10px;
-  top: -10px;
-  display: block;
-  opacity: 0;
-  pointer-events: none;
-}
 #form {
   display: flex;
   flex-wrap: wrap;

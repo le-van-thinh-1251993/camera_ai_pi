@@ -114,8 +114,7 @@ camera_posts = [
     if r["request"]["url"].endswith("/api/camera") and r["request"]["method"] == "POST"
 ]
 assert len(camera_posts) == 1, len(camera_posts)
-assert evaluate("document.getElementById('camera-video').srcObject===null")
-assert evaluate("document.getElementById('camera-video').playsInline")
+assert evaluate("document.querySelector('#live-preview').hidden")
 time.sleep(2)
 assert evaluate("audioPlays") == 2
 report.update(
@@ -127,7 +126,7 @@ shot("qa-auto.png")
 evaluate(
     "document.getElementById('phone-mode').value='manual';document.getElementById('phone-mode').dispatchEvent(new Event('change'));document.getElementById('camera-start').click()"
 )
-until("document.getElementById('camera-video').videoWidth>0")
+until("!document.getElementById('live-preview').hidden")
 evaluate(
     "document.getElementById('phone-freeze').click();document.getElementById('phone-capture').click()"
 )

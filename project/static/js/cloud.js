@@ -1,4 +1,4 @@
-import { requestId, sleep } from './api.js?v=cloud-v6-camera-upload-7';
+import { requestId, sleep } from './api.js?v=cloud-v6-camera-upload-8';
 export class CloudJobs {
   constructor(api, status) {
     this.api = api;
