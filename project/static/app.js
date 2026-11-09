@@ -9,6 +9,7 @@ import { watchEvents } from './js/events.js?v=cloud-v6-camera-upload-8';
 const api = new Api();
 let current = null,
   mode = 'upload',
+  localOnly = false,
   renderVersion = 0,
   photoURL = null,
   streamAbort = null;
@@ -243,12 +244,16 @@ async function connect() {
     el('rows').replaceChildren();
     history.reverse().forEach(row);
     const cloudReady = diagnostics.cloud?.connected;
-    el('connection').textContent = cloudReady
-      ? '● Đã kết nối Pi + Supabase'
-      : '◐ Đã xác thực Pi · đang kết nối Supabase…';
-    el('settings-status').textContent = cloudReady
-      ? 'Đã xác thực dashboard và Supabase.'
-      : 'Đã xác thực dashboard. Supabase đang khởi tạo, thử gửi lại sau ít giây.';
+      el('connection').textContent = localOnly
+        ? '● Nhận diện local trên máy này'
+        : cloudReady
+          ? '● Đã kết nối Pi + Supabase'
+          : '◐ Đã xác thực Pi · đang kết nối Supabase…';
+    el('settings-status').textContent = localOnly
+      ? 'Đang chạy local, không cần API key.'
+      : cloudReady
+        ? 'Đã xác thực dashboard và Supabase.'
+        : 'Đã xác thực dashboard. Supabase đang khởi tạo, thử gửi lại sau ít giây.';
     el('settings-dialog').close();
     error('');
     streamAbort = new AbortController();
@@ -339,8 +344,12 @@ window.addEventListener('pagehide', () => {
 async function health() {
   try {
     const state = await (await fetch('/health')).json();
+    localOnly = state.mode === 'local-only';
+    el('settings-open').hidden = localOnly;
     el('health').textContent = state.ready
-      ? state.cloud_ready
+      ? localOnly
+        ? '● Local sẵn sàng'
+        : state.cloud_ready
         ? '● Pi + Supabase sẵn sàng'
         : '● Model sẵn sàng · đang kết nối Cloud'
       : '● Đang khởi động';
@@ -348,6 +357,8 @@ async function health() {
     el('health').textContent = '○ Không kết nối được Pi';
   }
 }
-health();
 setInterval(health, 15000);
-el('settings-dialog').showModal();
+health().then(() => {
+  if (localOnly) connect();
+  else el('settings-dialog').showModal();
+});

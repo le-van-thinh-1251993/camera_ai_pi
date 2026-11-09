@@ -1,368 +1,890 @@
+
 #include <Arduino.h>
-#include <ArduinoJson.h>
-#include <WiFi.h>
-#include <Preferences.h>
-#include <esp_heap_caps.h>
+#include <atomic>
+#include <math.h>
+
 #include "config.h"
-#include "protocol_types.h"
-#include "cloud_transport.h"
 #include "hardware.h"
 
-static CloudTransport cloud;
-static Preferences preferences;
-static Snapshot shared;
-static SemaphoreHandle_t stateMutex, jpegMutex, screenMutex;
-static QueueHandle_t commands;
-static uint8_t *cachedJpeg = nullptr, *screenJpeg = nullptr;
-static size_t cachedSize = 0, screenSize = 0;
-static uint32_t cachedAt = 0;
-static CapturedFrame frames[AUTO_FRAMES];
-static std::atomic<bool> cancelAudio{false}, menuOpen{true};
-static std::atomic<bool> screenPresented{false};
-static bool newScreen = false, hardwareOk = false;
-// These strings and protocol state are owned exclusively by the network task.
-static String pendingId, lastConsumed, audioPath, lastControl;
-static unsigned frameCount = 0, targetFrames = 0, attempt = 0;
-static bool collecting = false, submitted = false, collectingAuto = false;
-static bool localSubmitted = false;
-static bool systemOn = true, greetingShown = false;
-static JsonDocument localJob;
-static bool manualPersisted = false;
-static uint32_t pollAt = 0, syncAt = 0;
-static uint32_t captureStarted = 0;
-static uint32_t requestStarted = 0;
-static JsonDocument ackQueue;
+// =====================================================
+// ESP32-S3 + TFT ILI9488 3.5 INCH
+// PCB BUTTON UI + I2S SPEAKER DEMO
+//
+// BACK1   = GPIO47 = Next option
+// SELECT1 = GPIO21 = Confirm
+// DOWN1   = GPIO3  = Volume UP
+// UP1     = GPIO14 = Volume DOWN
+//
+// SW2 = Physical power switch
+//
+// Camera is disabled for this demo.
+// =====================================================
 
-static uint8_t *allocateBytes(size_t bytes) {
-  auto memory = (uint8_t *)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  return memory ? memory : (uint8_t *)malloc(bytes);
+#if !TFT_KIND
+#error "Enable TFT_KIND = 1 in config.h"
+#endif
+
+#if ENABLE_CAMERA
+#error "Set ENABLE_CAMERA = 0 in config.h"
+#endif
+
+// ===== REAL PCB GPIO =====
+
+static const int PIN_BACK   = 47;
+static const int PIN_SELECT = 21;
+static const int PIN_DOWN   = 3;
+static const int PIN_UP     = 14;
+
+static const int BUTTON_PINS[4] = {
+  PIN_BACK,
+  PIN_SELECT,
+  PIN_DOWN,
+  PIN_UP
+};
+
+static const char* BUTTON_NAMES[4] = {
+  "BACK1",
+  "SELECT1",
+  "DOWN1",
+  "UP1"
+};
+
+// ===== DISPLAY COLORS =====
+
+static const uint16_t BG     = 0x0841;
+static const uint16_t PANEL  = 0x10A2;
+static const uint16_t CYAN   = 0x07FF;
+static const uint16_t WHITE  = 0xFFFF;
+static const uint16_t GREEN  = 0x07E0;
+static const uint16_t YELLOW = 0xFFE0;
+static const uint16_t GRAY   = 0x8410;
+
+// ===== UI STATES =====
+
+enum Page {
+  PAGE_WELCOME,
+  PAGE_MENU,
+  PAGE_PREVIEW,
+  PAGE_RESULT
+};
+
+static Page currentPage = PAGE_WELCOME;
+
+static int menuIndex = 0;
+static int pageIndex = 0;
+static int demoGesture = 0;
+
+static int volumePercent = 60;
+
+static bool needsRedraw = true;
+
+static uint32_t volumeOverlayUntil = 0;
+
+static std::atomic<bool> cancelAudio{false};
+
+// ===== BUTTON DEBOUNCE =====
+
+struct ButtonState {
+  bool raw = false;
+  bool stable = false;
+  uint32_t changedAt = 0;
+};
+
+static ButtonState buttons[4];
+
+static const uint32_t BUTTON_DEBOUNCE_MS = 35;
+
+// =====================================================
+// DRAW HELPERS
+// =====================================================
+
+static void drawText(
+  int x,
+  int y,
+  const String& value,
+  uint16_t color = WHITE,
+  int size = 2
+) {
+  lcd.setTextColor(color, BG);
+  lcd.setTextSize(size);
+  lcd.setCursor(x, y);
+  lcd.print(value);
 }
-static Snapshot snapshot() {
-  xSemaphoreTake(stateMutex, portMAX_DELAY); Snapshot value = shared;
-  xSemaphoreGive(stateMutex); return value;
+
+static void drawPanel(
+  int x,
+  int y,
+  int w,
+  int h,
+  uint16_t borderColor = GRAY
+) {
+  lcd.fillRoundRect(x, y, w, h, 9, PANEL);
+  lcd.drawRoundRect(x, y, w, h, 9, borderColor);
 }
-static void setState(const Snapshot &value) {
-  xSemaphoreTake(stateMutex, portMAX_DELAY); shared = value; xSemaphoreGive(stateMutex);
+
+static void drawHeader(
+  const String& title,
+  const String& status
+) {
+  lcd.fillScreen(BG);
+
+  lcd.fillRect(
+    0, 0,
+    lcd.width(), 44,
+    0x1084
+  );
+
+  drawText(12, 12, title, CYAN, 2);
+
+  lcd.setTextSize(1);
+  lcd.setTextColor(GREEN, 0x1084);
+
+  lcd.setCursor(lcd.width() - 85, 19);
+  lcd.print(status);
+
+  lcd.drawFastHLine(
+    0, 44,
+    lcd.width(),
+    CYAN
+  );
 }
-static String uuid() {
-  uint8_t bytes[16]; esp_fill_random(bytes, sizeof(bytes));
-  bytes[6] = (bytes[6] & 15) | 0x40; bytes[8] = (bytes[8] & 63) | 0x80;
-  char output[37];
-  snprintf(output, sizeof(output), "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-    bytes[0],bytes[1],bytes[2],bytes[3],bytes[4],bytes[5],bytes[6],bytes[7],bytes[8],bytes[9],bytes[10],bytes[11],bytes[12],bytes[13],bytes[14],bytes[15]);
-  return String(output);
+
+static void drawFooter(const String& text) {
+  int y = lcd.height() - 31;
+
+  lcd.fillRect(
+    0, y,
+    lcd.width(), 31,
+    0x1084
+  );
+
+  drawText(8, y + 10, text, WHITE, 1);
 }
-static void storeAcks() {
-  String text; serializeJson(ackQueue, text); preferences.putString("acks", text);
-}
-static void queueAck(const String &id, bool displayed, bool played) {
-  JsonObject row;
-  for(JsonObject item:ackQueue.as<JsonArray>())if(item["id"].as<String>()==id){row=item;break;}
-  if(row.isNull())row=ackQueue.as<JsonArray>().add<JsonObject>();
-  displayed=displayed||(row["displayed"]|false);played=played||(row["played"]|false);
-  row["id"] = id; row["displayed"] = displayed; row["played"] = played; storeAcks();
-}
-static void flushAck() {
-  static uint32_t next = 0;
-  if (!ackQueue.size() || int32_t(millis() - next) < 0 || !cloud.login()) return;
-  JsonDocument body, output; JsonObject row = ackQueue[0];
-  body["p_id"] = row["id"]; body["p_displayed"] = row["displayed"]; body["p_played"] = row["played"];
-  String text; serializeJson(body, text);
-  int code=cloud.json("POST", "/rest/v1/rpc/ai_ack", text, output);
-  bool consumed=code==200&&output.as<bool>();
-  if(code==200&&!consumed){
-    JsonDocument rows;
-    if(cloud.json("GET","/rest/v1/ai_requests?id=eq."+row["id"].as<String>()+"&select=id&limit=1","",rows)==200&&rows.size()==0)consumed=true;
+
+static void drawOption(
+  int y,
+  const String& text,
+  bool selected
+) {
+  int width = lcd.width();
+
+  drawPanel(
+    18, y,
+    width - 36, 46,
+    selected ? CYAN : GRAY
+  );
+
+  if (selected) {
+    lcd.fillRect(
+      20, y + 2,
+      6, 42,
+      CYAN
+    );
   }
-  if (consumed) {
-    ackQueue.as<JsonArray>().remove(0); storeAcks(); next = 0;
-  } else next = millis() + 15000;
+
+  drawText(
+    34, y + 14,
+    text,
+    selected ? YELLOW : WHITE,
+    2
+  );
 }
-static void resetRequest() {
-  collecting = false; submitted = false; localSubmitted = false; pendingId = ""; frameCount = 0;
-  if(manualPersisted){preferences.remove("pending");manualPersisted=false;}
+
+// =====================================================
+// VOLUME OVERLAY
+// =====================================================
+
+static void drawVolumeOverlay() {
+  int y = lcd.height() - 65;
+
+  lcd.fillRoundRect(
+    12, y,
+    lcd.width() - 24, 30,
+    5, 0x2104
+  );
+
+  lcd.setTextSize(2);
+  lcd.setTextColor(YELLOW, 0x2104);
+
+  lcd.setCursor(22, y + 6);
+
+  lcd.printf(
+    "AM LUONG: %d%%",
+    volumePercent
+  );
 }
-static void beginCapture(bool automatic, bool newRound) {
-  if (ackQueue.size() >= 32) { Serial.println("ACK queue full; reconnect Cloud first."); return; }
-  for(auto &frame:frames)if(!frame.data){Serial.println("Not enough RAM. Verify PSRAM settings.");return;}
-  if (newRound) attempt = 0;
-  pendingId = uuid(); frameCount = 0; targetFrames = 1;
-  collecting = true; collectingAuto = automatic; submitted = false;
-  captureStarted=millis();
-  requestStarted=0;
-  Snapshot value = snapshot(); value.resultId = ""; value.hold = 0;
-  value.view = "preview"; value.running = automatic; setState(value);
-}
-static void captureStep() {
-  if(collecting&&millis()-captureStarted>6000){
-    collecting=false;pendingId="";Snapshot value=snapshot();value.running=false;value.view="paused";value.text="Camera chua co anh. Kiem tra camera va GPIO.";setState(value);drawError(value.text);return;
-  }
-  if (!collecting || !frames[frameCount].data) return;
-  if (collectingAuto && millis()-captureStarted < 2000) {
-    Snapshot value=snapshot();value.hold=(millis()-captureStarted)/1000.f;setState(value);return;
-  }
-  xSemaphoreTake(jpegMutex, portMAX_DELAY);
-  bool ready = cachedSize && (millis() - cachedAt < 500) &&
-               (frameCount == 0 || uint32_t(cachedAt - frames[0].captured) >= frameCount * 1000);
-  if (ready) {
-    frames[frameCount].size = cachedSize; frames[frameCount].captured = cachedAt;
-    memcpy(frames[frameCount].data, cachedJpeg, cachedSize); frameCount++;
-  }
-  xSemaphoreGive(jpegMutex);
-  Snapshot value = snapshot();
-  if (frameCount) value.hold = min(2.f, uint32_t(millis() - frames[0].captured) / 1000.f);
-  if (frameCount == targetFrames) { collecting = false; value.view = "processing"; value.hold = collectingAuto ? 2.f : 0.f; }
-  setState(value);
-}
-static String inputDocument() {
-  Snapshot value = snapshot(); JsonDocument input;
-  input["pipeline_version"] = 6; input["source"] = "esp32";
-  input["mode"] = "manual";
-  input["capture_mode"] = collectingAuto ? "auto" : "manual";
-  input["count_all"] = value.countAll; input["retry_index"] = attempt;
-  for (unsigned i = 0; i < targetFrames; i++) {
-    JsonObject row = input["frames"].add<JsonObject>();
-    row["path"] = String(SB_UID) + "/" + pendingId + (i ? "/" + String(i) + ".jpg" : ".jpg");
-    row["ms"] = uint32_t(frames[i].captured - frames[0].captured);
-  }
-  String text; serializeJson(input, text); return text;
-}
-static bool submitRequest() {
-  if (!cloud.login()) return false;
-  JsonDocument input; deserializeJson(input, inputDocument());
-  for (unsigned i = 0; i < targetFrames; i++) {
-    if (!cloud.image(input["frames"][i]["path"].as<String>(), frames[i].data, frames[i].size)) return false;
-  }
-  JsonDocument args, output;
-  args["p_id"] = pendingId; args["p_device"] = DEVICE_ID;
-  args["p_image"] = String(SB_UID) + "/" + pendingId + ".jpg"; args["p_input"].set(input);
-  String text; serializeJson(args, text);
-  if (cloud.json("POST", "/rest/v1/rpc/ai_submit", text, output) != 200) return false;
-  // Auto probes stay in RAM. Manual can resume an accepted Cloud UUID after reboot.
-  if (!collectingAuto) {preferences.putString("pending", pendingId);manualPersisted=true;}
-  return true;
-}
-static bool submitLocalRequest() {
-  Snapshot value = snapshot();
-  localJob.clear();
-  if (!cloud.lanRecognize(DEVICE_ID, pendingId, frames[0].data, frames[0].size,
-                           collectingAuto, value.countAll, attempt, localJob)) return false;
-  if (localJob["result"]["id"].as<String>() != pendingId) return false;
-  localSubmitted = true;
-  return true;
-}
-static bool playAudio(const String &path) {
-  auto wav = allocateBytes(MAX_WAV_BYTES); size_t length = 0;
-  if (!wav) return false;
-  cancelAudio = false;
-  bool downloaded = localSubmitted
-    ? cloud.lanAudio(DEVICE_ID, pendingId, wav, MAX_WAV_BYTES, length)
-    : cloud.download(path, wav, MAX_WAV_BYTES, length);
-  bool played = downloaded && playWav(wav, length, cancelAudio);
-  free(wav); return played;
-}
-static void finalResult(JsonDocument &job) {
-  menuOpen=false;screenPresented=false;
-  String id = job["id"] | ""; bool displayed = false, played = false;
-  Snapshot value = snapshot(); value.running = false; value.view = "result"; value.resultId = id;
-  value.text = job["result"]["text"] | "Chua nhan dien duoc cu chi"; setState(value);
-  bool screenLoaded = false;
-  String screenPath = localSubmitted
-    ? (job["result"]["screen_path"] | "")
-    : (job["screen_path"] | "");
-  drawResultView(job["result"]["gesture"] | "Unknown", value.text);
-  audioPath = job["audio_path"] | "";
-  if (lastConsumed != id) {
-    lastConsumed = id; preferences.putString("consumed", id);
-    preferences.putBool("played", false); played = playAudio(audioPath);
-    preferences.putBool("played", played);
-  } else played = preferences.getBool("played", false);
-  if (screenJpeg && ((localSubmitted && screenPath == "local") ||
-                     (!localSubmitted && screenPath.startsWith(String(SB_UID) + "/")))) {
-    size_t downloaded = 0;
-    screenLoaded = localSubmitted
-      ? cloud.lanScreen(DEVICE_ID, id, screenJpeg, MAX_SCREEN_BYTES, downloaded)
-      : cloud.download(screenPath, screenJpeg, MAX_SCREEN_BYTES, downloaded);
-    if (screenLoaded) {
-      xSemaphoreTake(screenMutex, portMAX_DELAY);
-      screenSize = downloaded; newScreen = true;
-      xSemaphoreGive(screenMutex);
+
+// =====================================================
+// MAIN UI RENDER
+// =====================================================
+
+static void renderScreen() {
+  if (!lcdReady) return;
+
+  int w = lcd.width();
+  int h = lcd.height();
+
+  switch (currentPage) {
+
+    // ===== WELCOME =====
+
+    case PAGE_WELCOME: {
+      drawHeader(
+        "GESTURE AI",
+        "OFFLINE"
+      );
+
+      drawPanel(
+        18, 63,
+        w - 36,
+        h - 117,
+        CYAN
+      );
+
+      drawText(
+        35, 86,
+        "XIN CHAO THAY",
+        YELLOW, 2
+      );
+
+      drawText(
+        35, 128,
+        "ESP32-S3 + TFT",
+        WHITE, 2
+      );
+
+      drawText(
+        35, 164,
+        "Camera: CHUA KET NOI",
+        GREEN, 1
+      );
+
+      drawOption(
+        h - 112,
+        "VAO MENU",
+        true
+      );
+
+      drawFooter(
+        "SELECT: VAO MENU"
+      );
+
+      break;
+    }
+
+    // ===== MAIN MENU =====
+
+    case PAGE_MENU: {
+      drawHeader(
+        "MENU CHINH",
+        "DEMO"
+      );
+
+      const char* items[3] = {
+        "CAMERA PREVIEW",
+        "KET QUA DEMO",
+        "QUAY VE"
+      };
+
+      for (int i = 0; i < 3; i++) {
+        drawOption(
+          54 + i * 60,
+          items[i],
+          menuIndex == i
+        );
+      }
+
+      drawFooter(
+        "BACK: CHUYEN   SELECT: CHON"
+      );
+
+      break;
+    }
+
+    // ===== CAMERA PREVIEW =====
+
+    case PAGE_PREVIEW: {
+      drawHeader(
+        "CAMERA PREVIEW",
+        "OFFLINE"
+      );
+
+      int fx = 16;
+      int fy = 55;
+      int fw = w - 32;
+      int fh = h - 208;
+
+      // Outer camera frame
+      lcd.drawRoundRect(
+        fx, fy, fw, fh,
+        7, CYAN
+      );
+
+      // Inner camera frame
+      lcd.drawRoundRect(
+        fx + 9,
+        fy + 9,
+        fw - 18,
+        fh - 18,
+        5, GRAY
+      );
+
+      // Center crosshair
+      int cx = w / 2;
+      int cy = fy + fh / 2;
+
+      lcd.drawLine(
+        cx - 22, cy,
+        cx + 22, cy,
+        GREEN
+      );
+
+      lcd.drawLine(
+        cx, cy - 22,
+        cx, cy + 22,
+        GREEN
+      );
+
+      drawText(
+        35, fy + 24,
+        "CAMERA OFF",
+        YELLOW, 2
+      );
+
+      drawText(
+        35, fy + 55,
+        "Khung preview gia lap",
+        WHITE, 1
+      );
+
+      drawOption(
+        h - 143,
+        "XEM KET QUA",
+        pageIndex == 0
+      );
+
+      drawOption(
+        h - 91,
+        "QUAY VE",
+        pageIndex == 1
+      );
+
+      drawFooter(
+        "BACK: CHUYEN   SELECT: CHON"
+      );
+
+      break;
+    }
+
+    // ===== DEMO RESULT =====
+
+    case PAGE_RESULT: {
+      drawHeader(
+        "KET QUA DEMO",
+        "MO PHONG"
+      );
+
+      drawPanel(
+        18, 56,
+        w - 36,
+        h - 205,
+        GREEN
+      );
+
+      drawText(
+        35, 77,
+        "CU CHI GIA LAP",
+        WHITE, 2
+      );
+
+      const char* gestures[3] = {
+        "OPEN PALM",
+        "TWO",
+        "FIST"
+      };
+
+      drawText(
+        35, 117,
+        gestures[demoGesture % 3],
+        YELLOW, 3
+      );
+
+      drawText(
+        35, 162,
+        "Khong phai ket qua AI",
+        GRAY, 1
+      );
+
+      drawOption(
+        h - 143,
+        "DOI CU CHI",
+        pageIndex == 0
+      );
+
+      drawOption(
+        h - 91,
+        "QUAY VE",
+        pageIndex == 1
+      );
+
+      drawFooter(
+        "BACK: CHUYEN   SELECT: CHON"
+      );
+
+      break;
     }
   }
-  if (!screenLoaded) drawResultView(job["result"]["gesture"] | "Unknown", value.text);
-  displayed = lcdReady;
-  if (localSubmitted) cloud.lanAck(DEVICE_ID, id, displayed, played);
-  else queueAck(id, displayed, played);
-  Serial.println(value.text); resetRequest();
+
+  if (
+    volumeOverlayUntil != 0 &&
+    (int32_t)(volumeOverlayUntil - millis()) > 0
+  ) {
+    drawVolumeOverlay();
+  }
+
+  needsRedraw = false;
 }
-static void handleAction(const Action &action) {
-  String name = action.name; Snapshot value = snapshot();
-  if (name == "power") {
-    systemOn = !systemOn;
-    if (!systemOn) { value.running = false; value.view = "standby"; setState(value); resetRequest(); drawStandbyView(); }
-    else { value.view = "greeting"; setState(value); drawGreetingScreen(); }
+
+// =====================================================
+// I2S SPEAKER FEEDBACK
+// Uses playWav() from existing hardware.h
+// =====================================================
+
+static void speakerBeep() {
+
+#if ENABLE_I2S_AUDIO
+
+  const uint32_t sampleRate = 16000;
+  const uint32_t sampleCount = 1920;
+
+  const size_t totalBytes =
+    44 + sampleCount * 2;
+
+  uint8_t* wav =
+    (uint8_t*)malloc(totalBytes);
+
+  if (!wav) {
+    Serial.println(
+      "[AUDIO] Not enough memory"
+    );
     return;
   }
-  if (!systemOn) return;
-  if (name == "volume_up") { currentVolumePercent.store(min(100, currentVolumePercent.load() + 10)); return; }
-  if (name == "volume_down") { currentVolumePercent.store(max(0, currentVolumePercent.load() - 10)); return; }
-  cancelAudio = true;
-  if (name == "next") {
-    resetRequest(); menuOpen = false; value.mode = "auto"; value.view = "preview"; value.running = true; setState(value);
-    beginCapture(true, true); return;
-  }
-  if (action.hasCount) value.countAll = action.countAll;
-  if (name == "toggle_count") { value.countAll = !value.countAll; setState(value); return; }
-  if (name == "replay") { playAudio(audioPath); return; }
-  if (name == "greeting") { if (cloud.login()) playAudio(String(SB_UID) + "/greeting/voice.wav"); return; }
-  resetRequest(); value.hold = 0; value.resultId = "";
-  if (name == "home") { value.view = "home"; value.running = false; drawGreetingScreen(); }
-  else if (name == "stop") { value.view = "paused"; value.running = false; }
-  else if (name == "auto") { menuOpen = false; value.mode = name; value.view = "preview"; value.running = true; }
-  else if (name == "manual") { menuOpen = false; value.mode = name; value.view = "manual"; value.running = false; }
-  else if (name == "start") { menuOpen = false; value.view = "preview"; value.running = true; }
-  setState(value);
-  if (name == "manual") drawManualView();
-  if (name == "capture" && value.mode == "manual") beginCapture(false, true);
-  else if (value.mode == "auto" && value.running) beginCapture(true, true);
-}
-static void exchangeState() {
-  if (int32_t(millis() - syncAt) < 0) return;
-  Snapshot value = snapshot(); JsonDocument args, output;
-  args["p_device"] = DEVICE_ID;
-  JsonObject state = args["p_state"].to<JsonObject>();
-  state["mode"] = value.mode; state["running"] = value.running; state["view"] = value.view;
-  state["hold"] = value.hold; state["result_id"] = value.resultId; state["control_id"] = lastControl;
-  state["count_all"] = value.countAll;
-  xSemaphoreTake(jpegMutex, portMAX_DELAY); state["has_frame"] = cachedSize > 0; xSemaphoreGive(jpegMutex);
-  state["audio_status"] = value.view == "result" ? (ENABLE_I2S_AUDIO ? (preferences.getBool("played", false) ? "played" : "failed") : "disabled") : "idle";
-  String body; serializeJson(args, body);
-  bool exchanged = cloud.login() &&
-                   cloud.json("POST", "/rest/v1/rpc/ai_device_exchange", body, output) == 200;
-  if (!exchanged) exchanged = cloud.lanJson(
-      "/api/lan/device/" + String(DEVICE_ID) + "/exchange", body, output);
-  if (exchanged) {
-    String id = output["control"]["id"] | "";
-    if (id.length() && id != lastControl) {
-      Action action = {}; String name = output["control"]["action"] | "";
-      strlcpy(action.name, name.c_str(), sizeof(action.name));
-      action.hasCount = true; action.countAll = output["control"]["count_all"] | false;
-      handleAction(action); lastControl = id; preferences.putString("control", id);
-      menuOpen = name == "home";
+
+  memset(wav, 0, totalBytes);
+
+  auto write16 = [&](int pos, uint16_t value) {
+    wav[pos] = value & 0xFF;
+    wav[pos + 1] = value >> 8;
+  };
+
+  auto write32 = [&](int pos, uint32_t value) {
+    for (int i = 0; i < 4; i++) {
+      wav[pos + i] =
+        (value >> (i * 8)) & 0xFF;
     }
+  };
+
+  memcpy(wav, "RIFF", 4);
+  write32(4, totalBytes - 8);
+
+  memcpy(wav + 8, "WAVEfmt ", 8);
+
+  write32(16, 16);
+  write16(20, 1);
+  write16(22, 1);
+
+  write32(24, sampleRate);
+  write32(28, sampleRate * 2);
+
+  write16(32, 2);
+  write16(34, 16);
+
+  memcpy(wav + 36, "data", 4);
+  write32(40, sampleCount * 2);
+
+  for (uint32_t i = 0; i < sampleCount; i++) {
+
+    float envelope =
+      fminf(1.0f, float(i) / 160.0f) *
+      fminf(
+        1.0f,
+        float(sampleCount - 1 - i) / 160.0f
+      );
+
+    float wave =
+      sinf(
+        2.0f * 3.14159265f *
+        880.0f * i / sampleRate
+      );
+
+    int16_t sample =
+      (int16_t)(wave * 8500.0f * envelope);
+
+    write16(
+      44 + i * 2,
+      (uint16_t)sample
+    );
   }
-  syncAt = millis() + (value.running ? 5000 : 15000);
-}
-static void networkTask(void *) {
-  preferences.begin("ai-hybrid", false);
-  lastConsumed = preferences.getString("consumed", ""); lastControl = preferences.getString("control", "");
-  if (deserializeJson(ackQueue, preferences.getString("acks", "[]"))) ackQueue.to<JsonArray>();
-  pendingId = preferences.getString("pending", ""); submitted = pendingId.length();
-  manualPersisted=submitted;
-  collectingAuto = false; unsigned failures = 0;
-  for (;;) {
-    Action action;
-    if (xQueueReceive(commands, &action, 0) == pdTRUE) { handleAction(action); syncAt = 0; failures = 0; }
-    if (!systemOn) { delay(100); continue; }
-    if (collecting) { captureStep(); delay(15); continue; } // Do not let TLS latency stretch the capture burst.
-    if (WiFi.status() != WL_CONNECTED) { delay(200); continue; }
-    if (!greetingShown) {
-      greetingShown = true;
-      drawGreetingScreen();
-#if ENABLE_I2S_AUDIO
-      if (cloud.login()) playAudio(String(SB_UID) + "/greeting/voice.wav");
+
+  cancelAudio.store(false);
+
+  bool played =
+    playWav(wav, totalBytes, cancelAudio);
+
+  Serial.printf(
+    "[AUDIO] Beep %s | Volume=%d%%\n",
+    played ? "OK" : "FAILED",
+    currentVolumePercent.load()
+  );
+
+  free(wav);
+
+#else
+
+  Serial.println(
+    "[AUDIO] ENABLE_I2S_AUDIO = 0"
+  );
+
 #endif
+}
+
+// =====================================================
+// BUTTON ACTIONS
+// =====================================================
+
+static void handleButton(int key) {
+
+  Serial.printf(
+    "[BUTTON] %s | PAGE=%d\n",
+    BUTTON_NAMES[key],
+    (int)currentPage
+  );
+
+  // ===== DOWN1: VOLUME UP =====
+
+  if (key == 2) {
+
+    volumePercent =
+      constrain(volumePercent + 10, 0, 100);
+
+    currentVolumePercent.store(
+      volumePercent
+    );
+
+    volumeOverlayUntil = millis() + 1200;
+
+    needsRedraw = true;
+
+    Serial.printf(
+      "[VOLUME] UP: %d%%\n",
+      volumePercent
+    );
+
+    speakerBeep();
+
+    return;
+  }
+
+  // ===== UP1: VOLUME DOWN =====
+
+  if (key == 3) {
+
+    volumePercent =
+      constrain(volumePercent - 10, 0, 100);
+
+    currentVolumePercent.store(
+      volumePercent
+    );
+
+    volumeOverlayUntil = millis() + 1200;
+
+    needsRedraw = true;
+
+    Serial.printf(
+      "[VOLUME] DOWN: %d%%\n",
+      volumePercent
+    );
+
+    speakerBeep();
+
+    return;
+  }
+
+  // ===== WELCOME =====
+
+  if (currentPage == PAGE_WELCOME) {
+
+    if (key == 1) {
+      currentPage = PAGE_MENU;
+      menuIndex = 0;
+      needsRedraw = true;
     }
-    exchangeState(); flushAck();
-    if (int32_t(millis() - pollAt) < 0) { delay(30); continue; }
-    if (!pendingId.length()) { delay(100); continue; }
-    if (requestStarted && millis() - requestStarted > RESULT_TIMEOUT_MS) {
-      Snapshot value = snapshot(); value.running = false; value.view = "paused";
-      value.text = "Het thoi gian cho ket qua. Vui long thu lai.";
-      setState(value); drawError(value.text); resetRequest(); requestStarted = 0; continue;
+
+    return;
+  }
+
+  // ===== MAIN MENU =====
+
+  if (currentPage == PAGE_MENU) {
+
+    // BACK1 = Next option
+    if (key == 0) {
+
+      menuIndex =
+        (menuIndex + 1) % 3;
+
+      needsRedraw = true;
+
+      return;
     }
-    if (!submitted) {
-      localSubmitted = false;
-      if (!submitRequest() && !submitLocalRequest()) {
-        if (++failures >= 4) { Snapshot value = snapshot(); value.running = false; value.view = "paused"; value.text = "Khong ket noi duoc Supabase"; setState(value); drawError(value.text); resetRequest(); }
-        pollAt = millis() + 3000; continue;
+
+    // SELECT1 = Confirm
+    if (key == 1) {
+
+      if (menuIndex == 0) {
+        currentPage = PAGE_PREVIEW;
       }
-      submitted = true; requestStarted = millis(); failures = 0;
+      else if (menuIndex == 1) {
+        currentPage = PAGE_RESULT;
+      }
+      else {
+        currentPage = PAGE_WELCOME;
+      }
+
+      pageIndex = 0;
+      needsRedraw = true;
+
+      return;
     }
-    if (localSubmitted) {
-      JsonDocument job; job.set(localJob);
-      if (job["result"]["confirmed"] | false) finalResult(job);
-      else if (collectingAuto) { resetRequest(); attempt++; beginCapture(true, false); }
-      pollAt = millis() + 900;
-      continue;
+  }
+
+  // ===== SUB-PAGES =====
+
+  if (
+    currentPage == PAGE_PREVIEW ||
+    currentPage == PAGE_RESULT
+  ) {
+
+    // BACK1 cycles between options
+    if (key == 0) {
+
+      pageIndex =
+        (pageIndex + 1) % 2;
+
+      needsRedraw = true;
+
+      return;
     }
-    JsonDocument rows;
-    int code = cloud.json("GET", "/rest/v1/ai_requests?id=eq." + pendingId + "&select=id,status,result,audio_path,screen_path&limit=1", "", rows);
-    if (code == 200 && rows.size() == 1) {
-      String status = rows[0]["status"] | "";
-      if (status == "completed" || status == "acked") {
-        JsonDocument job; job.set(rows[0]);
-        if (job["result"]["confirmed"] | false) finalResult(job);
-        else if (collectingAuto) { resetRequest(); attempt++; beginCapture(true, false); }
-      } else if (status == "failed") {
-        Snapshot value = snapshot(); value.running = false; value.view = "paused"; value.text = "Cloud khong xu ly duoc anh"; setState(value); resetRequest();
+
+    // SELECT1 confirms
+    if (key == 1) {
+
+      // QUAY VE
+      if (pageIndex == 1) {
+
+        currentPage = PAGE_MENU;
+        pageIndex = 0;
+
+        needsRedraw = true;
+
+        return;
+      }
+
+      // Camera demo -> result demo
+      if (currentPage == PAGE_PREVIEW) {
+
+        currentPage = PAGE_RESULT;
+        pageIndex = 0;
+
+        needsRedraw = true;
+
+        return;
+      }
+
+      // Change demo gesture
+      if (currentPage == PAGE_RESULT) {
+
+        demoGesture =
+          (demoGesture + 1) % 3;
+
+        needsRedraw = true;
+
+        return;
       }
     }
-    pollAt = millis() + 900;
   }
 }
-struct Button {
-  int pin; bool stable=false, raw=false; uint32_t changed=0;
-  bool press() {
-    if (pin < 0) return false;
-    bool next = digitalRead(pin) == (BUTTON_ACTIVE_LOW ? LOW : HIGH);
-    if (next != raw) { raw=next; changed=millis(); }
-    if (next != stable && millis()-changed >= DEBOUNCE_MS) { stable=next; return stable; }
-    return false;
-  }
-};
-static Button buttons[]={{BTN_POWER},{BTN_NEXT},{BTN_VOLUME_UP},{BTN_VOLUME_DOWN},{BTN_MANUAL}};
-static void enqueue(const char *name) { Action action={}; strlcpy(action.name,name,sizeof(action.name)); xQueueSend(commands,&action,0); }
-static void buttonEvent(int index) {
-  const char *actions[]={"power","next","volume_up","volume_down","manual"};
-  if (index == 2) {
-    currentVolumePercent.store(min(100, currentVolumePercent.load() + 10)); return;
-  }
-  if (index == 3) {
-    currentVolumePercent.store(max(0, currentVolumePercent.load() - 10)); return;
-  }
-  cancelAudio = true;
-  enqueue(actions[index]);
-}
+
+// =====================================================
+// SETUP
+// =====================================================
+
 void setup() {
-  Serial.begin(115200); delay(200);
-  stateMutex=xSemaphoreCreateMutex(); jpegMutex=xSemaphoreCreateMutex(); screenMutex=xSemaphoreCreateMutex(); commands=xQueueCreate(8,sizeof(Action));
-  cachedJpeg=allocateBytes(MAX_JPEG_BYTES); screenJpeg=TFT_KIND?allocateBytes(MAX_SCREEN_BYTES):nullptr;
-  for(auto &frame:frames) frame.data=allocateBytes(MAX_JPEG_BYTES);
-  hardwareOk=beginHardware();
-  if(hardwareOk)for(auto &button:buttons)if(button.pin>=0)pinMode(button.pin,BUTTON_ACTIVE_LOW?INPUT_PULLUP:INPUT_PULLDOWN);
-  drawGreetingScreen(); delay(1200);
-  WiFi.mode(WIFI_STA); WiFi.setAutoReconnect(true); WiFi.persistent(true);
-  if(strlen(WIFI_SSID))WiFi.begin(WIFI_SSID,WIFI_PASSWORD);else WiFi.begin();
-  MDNS.begin(DEVICE_ID);
-  configTime(0,0,"pool.ntp.org","time.google.com");
-  Serial.println("Cloud first. Auto: one RAM frame after a 2-second countdown. p/n/+/-/m = power/next/volume/manual.");
-  xTaskCreate(networkTask,"cloud",16384,nullptr,1,nullptr);
-}
-void loop() {
-  if(hardwareOk)for(int i=0;i<5;i++)if(buttons[i].press())buttonEvent(i);
-  while(Serial.available()){char value=Serial.read();if(value=='p')buttonEvent(0);if(value=='n')buttonEvent(1);if(value=='+')buttonEvent(2);if(value=='-')buttonEvent(3);if(value=='m')buttonEvent(4);}
-  if(!menuOpen){xSemaphoreTake(screenMutex,portMAX_DELAY);if(newScreen){drawScreen(screenJpeg,screenSize);if(lcdReady)screenPresented=true;newScreen=false;}xSemaphoreGive(screenMutex);}
-#if ENABLE_CAMERA
-  Snapshot value=snapshot(); static uint32_t last=0;
-  if(cameraReady&&cachedJpeg&&value.running&&!menuOpen&&millis()-last>=PREVIEW_INTERVAL_MS){
-    auto frame=esp_camera_fb_get();
-    if(frame&&frame->format==PIXFORMAT_JPEG&&frame->len<=MAX_JPEG_BYTES){
-      drawCamera(frame->buf,frame->len,value.hold);xSemaphoreTake(jpegMutex,portMAX_DELAY);
-      memcpy(cachedJpeg,frame->buf,frame->len);cachedSize=frame->len;cachedAt=millis();xSemaphoreGive(jpegMutex);
-    }
-    if(frame)esp_camera_fb_return(frame);last=millis();
+
+  Serial.begin(115200);
+  delay(250);
+
+  Serial.println();
+  Serial.println(
+    "================================"
+  );
+  Serial.println(
+    " ESP32-S3 PCB UI + I2S AUDIO"
+  );
+  Serial.println(
+    "================================"
+  );
+
+  // Initialize TFT and I2S hardware
+  bool hardwareOK = beginHardware();
+
+  if (!hardwareOK || !lcdReady) {
+
+    Serial.println(
+      "[ERROR] TFT initialization failed"
+    );
+
+    return;
   }
-#endif
+
+  // Initialize four physical buttons
+  for (int i = 0; i < 4; i++) {
+
+    int pin = BUTTON_PINS[i];
+
+    pinMode(pin, INPUT_PULLUP);
+
+    bool pressed =
+      digitalRead(pin) == LOW;
+
+    buttons[i].raw = pressed;
+    buttons[i].stable = pressed;
+    buttons[i].changedAt = millis();
+
+    Serial.printf(
+      "[GPIO] %s = GPIO%d\n",
+      BUTTON_NAMES[i],
+      pin
+    );
+  }
+
+  currentVolumePercent.store(
+    volumePercent
+  );
+
+  currentPage = PAGE_WELCOME;
+  needsRedraw = true;
+
+  renderScreen();
+
+  Serial.println(
+    "[READY] TFT initialized"
+  );
+
+  Serial.println(
+    "[READY] BACK1 GPIO47"
+  );
+
+  Serial.println(
+    "[READY] SELECT1 GPIO21"
+  );
+
+  Serial.println(
+    "[READY] DOWN1 GPIO3 VOL+"
+  );
+
+  Serial.println(
+    "[READY] UP1 GPIO14 VOL-"
+  );
+
+  Serial.println(
+    "[READY] Serial: b s + -"
+  );
+}
+
+// =====================================================
+// LOOP
+// =====================================================
+
+void loop() {
+
+  if (!lcdReady) {
+    delay(1000);
+    return;
+  }
+
+  // ===== PHYSICAL BUTTON SCAN =====
+
+  for (int i = 0; i < 4; i++) {
+
+    int pin = BUTTON_PINS[i];
+
+    bool pressed =
+      digitalRead(pin) == LOW;
+
+    if (pressed != buttons[i].raw) {
+
+      buttons[i].raw = pressed;
+      buttons[i].changedAt = millis();
+    }
+
+    if (
+      pressed != buttons[i].stable &&
+      millis() - buttons[i].changedAt
+        >= BUTTON_DEBOUNCE_MS
+    ) {
+
+      buttons[i].stable = pressed;
+
+      Serial.printf(
+        "GPIO%d %s %s\n",
+        pin,
+        BUTTON_NAMES[i],
+        pressed ? "PRESSED" : "RELEASED"
+      );
+
+      if (pressed) {
+        handleButton(i);
+      }
+    }
+  }
+
+  // ===== SERIAL TEST =====
+
+  while (Serial.available()) {
+
+    char command = Serial.read();
+
+    if (command == 'b') {
+      handleButton(0);
+    }
+    else if (command == 's') {
+      handleButton(1);
+    }
+    else if (command == '+') {
+      handleButton(2);
+    }
+    else if (command == '-') {
+      handleButton(3);
+    }
+  }
+
+  // ===== HIDE VOLUME OVERLAY =====
+
+  if (
+    volumeOverlayUntil != 0 &&
+    (int32_t)(millis() - volumeOverlayUntil) >= 0
+  ) {
+
+    volumeOverlayUntil = 0;
+    needsRedraw = true;
+  }
+
+  // ===== REFRESH TFT =====
+
+  if (needsRedraw) {
+    renderScreen();
+  }
+
   delay(5);
 }

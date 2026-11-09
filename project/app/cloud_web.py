@@ -14,9 +14,9 @@ def attach_cloud_web(app, auth):
 
     def runtime():
         rt = getattr(app.state, "cloud_runtime", None)
-        if not rt or not rt.enabled:
+        if not rt or not rt.enabled or not rt.local_fallback:
             raise HTTPException(
-                503, "Cloud worker chưa sẵn sàng. Xem /api/diagnostics sau khi đăng nhập."
+                503, "Bộ nhận diện local chưa sẵn sàng. Xem /api/diagnostics sau khi đăng nhập."
             )
         return rt
 

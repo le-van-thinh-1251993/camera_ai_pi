@@ -30,21 +30,26 @@ class CloudRuntime:
         self.owners = {}
         self.completed = {}
         self.shared_voices = set()
-        self.enabled = os.getenv("CLOUD_ENABLED", "1") == "1"
-        self.local_fallback = os.getenv("CLOUD_LOCAL_FALLBACK", "1") == "1"
+        self.local_only = os.getenv("LOCAL_ONLY", "0") == "1"
+        self.enabled = self.local_only or os.getenv("CLOUD_ENABLED", "1") == "1"
+        self.local_fallback = self.local_only or os.getenv("CLOUD_LOCAL_FALLBACK", "1") == "1"
         self.state = {
             "enabled": self.enabled,
             "connected": False,
             "last_error": None,
             "processed": 0,
         }
-        name = os.getenv("CLOUD_DEVICE_ID", "")
-        owner = os.getenv("CLOUD_DEVICE_UID", "")
-        if name and owner:
+        name = os.getenv("CLOUD_DEVICE_ID", "esp32-01").strip()
+        owner = os.getenv("CLOUD_DEVICE_UID", "").strip()
+        if owner:
             self.owners[name] = str(uuid.UUID(owner))
+        elif self.local_only:
+            self.owners[name] = "00000000-0000-4000-8000-000000000001"
         self.worker = os.getenv("CLOUD_WORKER_ID", "pi-ai-01")
         self.lan_device_id = os.getenv("CLOUD_DEVICE_ID", "esp32-01").strip()
         self.lan_owner_id = os.getenv("CLOUD_DEVICE_UID", "").strip().lower()
+        if self.local_only and not self.lan_owner_id:
+            self.lan_owner_id = self.owners[self.lan_device_id]
         self.wake = asyncio.Event()
         self.control_wake = asyncio.Event()
         self.active_until = 0
@@ -279,7 +284,7 @@ class CloudRuntime:
                 await heartbeat
 
     async def run(self):
-        if not self.enabled:
+        if not self.enabled or self.local_only:
             return
         try:
             self.client = SupabaseClient(timeout=10)

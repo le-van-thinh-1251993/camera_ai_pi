@@ -44,7 +44,7 @@ last_event = None
 
 async def auth(request: Request):
     if not KEY:
-        raise HTTPException(503, "Chưa cấu hình khóa dashboard trong .env")
+        return  # Testing mode: skip auth when API_KEY is empty
     if not secrets.compare_digest(request.headers.get("X-API-Key", ""), KEY):
         raise HTTPException(
             401, "Khóa dashboard chưa đúng. Mở Cài đặt kết nối để nhập API_KEY trên Pi."
@@ -220,7 +220,11 @@ async def health():
             "status": "ok" if ready else "starting",
             "ready": ready,
             "cloud_ready": bool(rt and rt.state["connected"]),
-            "mode": "supabase-with-local-fallback",
+            "mode": (
+                "local-only"
+                if os.getenv("LOCAL_ONLY", "0") == "1"
+                else "supabase-with-local-fallback"
+            ),
         },
         status_code=200 if ready else 503,
     )

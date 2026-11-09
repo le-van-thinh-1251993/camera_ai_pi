@@ -108,6 +108,18 @@ kết nối, Pi tự nhận diện cục bộ và ESP32 chuyển qua LAN hostnam
 Cloud-only.
 Kết quả được lưu trong `DATA_DIR/hybrid/jobs.sqlite3` và vẫn xem được qua dashboard.
 
+### Chạy local không cần Supabase
+
+Trên Windows, mở PowerShell tại thư mục `project` rồi chạy:
+
+```powershell
+.\run_local.ps1
+```
+
+Hoặc sao chép `.env.local.example` thành `.env` rồi chạy `python scripts\serve.py`.
+Chế độ này đặt `LOCAL_ONLY=1`, nhận diện bằng MediaPipe trên máy, lưu SQLite trong
+`data/hybrid/jobs.sqlite3` và không kết nối Supabase. Mở `http://127.0.0.1:8000`.
+
 Chỉ còn hai nguồn camera: điện thoại/máy đang mở trang và ESP32 qua Cloud/LAN. Video điện thoại vẽ trong canvas trong khung, có `playsinline`, không dùng fullscreen video của iPhone.
 
 Khung ảnh mặc định lớn hơn bản v5, có nút **Phóng to ảnh**, nút chạm 44 px trở lên, chữ gợi ý 14 px và chế độ sáng/tối. Màn nhỏ có thể cần cuộn; chế độ phóng to ưu tiên ảnh thay vì ép ảnh quá nhỏ. Thông số kỹ thuật vẫn ở mục mở rộng. JS được tách thành camera, upload, Cloud queue, âm thanh, thiết bị và sự kiện.
@@ -132,9 +144,13 @@ Khi bật `USE_35INCH_TFT=1`, màn hình có các trạng thái:
 Bốn nút chức năng là `BTN_NEXT`, `BTN_VOLUME_UP`, `BTN_VOLUME_DOWN`,
 `BTN_MANUAL`; nút riêng `BTN_POWER` chuyển sang/từ trạng thái standby. Nút nguồn
 chỉ thực sự cắt điện nếu phần cứng có mạch power-latch; firmware không tự cắt được
-nguồn 5V. Tất cả GPIO vẫn để `-1` trong preset cho đến khi đối chiếu chân thật.
+nguồn 5V. Theo bảng schematic, preset TFT dùng các chân:
+`BACK1=GPIO3`, `SELECT1=GPIO14`, `UP1=GPIO47`, `DOWN1=GPIO21`.
 
-GPIO chưa xác minh vẫn để -1 và driver mặc định tắt. Chưa có pinout ESP32_BASE_BOARD_V1.2 nên chưa thể tuyên bố camera OV3660, ILI9488, MAX98357A/loa và 4 nút đã hoạt động đồng thời. INMP441 được để dự phòng; bài toán cử chỉ hiện không thu mic/ASR.
+Các chân camera OV3660 vẫn để `-1` vì bảng kết nối không cung cấp pinout DVP.
+ILI9488, MAX98357A/loa và 4 nút đã có mapping theo schematic; vẫn cần thử
+nghiệm phần cứng thực tế. INMP441 được để dự phòng; bài toán cử chỉ hiện không
+thu mic/ASR.
 
 Auto gửi một JPEG sau khi đếm ngược; không ghi LittleFS/NVS cho từng mẫu chưa xác nhận. Chỉ lưu UUID Manual đã nhận vào Cloud để phục hồi sau reboot, mã kết quả đã tiêu thụ và ACK của kết quả cuối. Loa tự phát tối đa một lần mỗi UUID; mất điện đúng lúc phát có thể làm câu bị thiếu, dùng Replay khi cần.
 
