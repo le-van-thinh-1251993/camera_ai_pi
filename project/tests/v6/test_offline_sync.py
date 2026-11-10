@@ -1,7 +1,5 @@
-import asyncio
 import tempfile
 import unittest
-from pathlib import Path
 
 from app.cloud_worker import CloudRuntime
 
@@ -31,7 +29,6 @@ class OfflineSync(unittest.IsolatedAsyncioTestCase):
             runtime.client = Client()
             rid = "00000000-0000-4000-8000-000000000006"
             owner = "00000000-0000-4000-8000-000000000007"
-            image = f"{owner}/{rid}.jpg"
             runtime.jobs.put_image(
                 rid,
                 "browser",

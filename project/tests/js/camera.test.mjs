@@ -16,6 +16,7 @@ globalThis.document = {
       });
     return elements.get(id);
   },
+  createElement: (tag) => ({ tagName: tag.toUpperCase(), srcObject: null }),
 };
 elements.set('phone-mode', { value: 'manual' });
 globalThis.cancelAnimationFrame = () => {};

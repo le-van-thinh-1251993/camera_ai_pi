@@ -22,7 +22,9 @@ def attach_cloud_web(app, auth):
 
     async def job_row(rt, rid):
         if not rt.client:
-            raise HTTPException(503, "Supabase đang mất kết nối; chưa có bản ghi cục bộ cho yêu cầu này.")
+            raise HTTPException(
+                503, "Supabase đang mất kết nối; chưa có bản ghi cục bộ cho yêu cầu này."
+            )
         try:
             rid = str(uuid.UUID(rid))
         except ValueError:
@@ -99,10 +101,7 @@ def attach_cloud_web(app, auth):
                     (path, raw, "image/png" if raw.startswith(b"\x89PNG") else "image/jpeg")
                 )
             validate_input(rid, owner, images[0][0], options)
-            if (
-                rt.local_fallback
-                and (not rt.client or not rt.state["connected"])
-            ):
+            if rt.local_fallback and (not rt.client or not rt.state["connected"]):
                 event = await rt.process_local_job(rid, name, owner, images, options)
                 return {
                     "id": rid,

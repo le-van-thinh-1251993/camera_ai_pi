@@ -1,4 +1,4 @@
-import { requestId, sleep } from './api.js?v=cloud-v6-camera-upload-8';
+import { requestId, sleep } from './api.js?v=dash-a-2';
 export class CloudJobs {
   constructor(api, status) {
     this.api = api;
@@ -40,8 +40,7 @@ export class CloudJobs {
         await sleep((attempt + 1) * 1000, signal);
       }
     }
-    if (!job.cloud && !job.fallback)
-      throw new Error('Máy chủ chưa dùng luồng Supabase mới.');
+    if (!job.cloud && !job.fallback) throw new Error('Máy chủ chưa dùng luồng Supabase mới.');
     const deadline = performance.now() + 120000;
     let interval = 250;
     let pollFailures = 0;

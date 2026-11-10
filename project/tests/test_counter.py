@@ -1,6 +1,6 @@
 import math
 import unittest
-from app.finger_counter import count_hand, summarize
+from app.finger_counter import choose_hands, count_hand, summarize
 
 
 def hand(number):
@@ -68,6 +68,24 @@ class Counts(unittest.TestCase):
             summarize([{"finger_count": None}, {"finger_count": 5}])["gesture"], "Unknown"
         )
         self.assertEqual(summarize([{"finger_count": 0}])["gesture"], "Unknown")
+
+    def test_choose_hands_spread_pair_vs_two_people(self):
+        def box(cx, cy, side, size=0.3):
+            pts = [
+                {"x": cx - size / 2, "y": cy - size / 2},
+                {"x": cx + size / 2, "y": cy + size / 2},
+            ]
+            return {"handedness": side, "landmarks": pts}
+
+        # Mot nguoi gio hai tay dang rong (anh 4 + 4 ngon): giu ca hai.
+        spread = [box(0.26, 0.5, "Right"), box(0.74, 0.5, "Left")]
+        self.assertEqual(len(choose_hands(spread)), 2)
+        # Hai tay cung phia (thuong la hai nguoi): chi lay tay lon nhat.
+        same_side = [box(0.26, 0.5, "Right"), box(0.74, 0.5, "Right")]
+        self.assertEqual(len(choose_hands(same_side)), 1)
+        # Lech doc qua nhieu: khong cong.
+        uneven = [box(0.26, 0.2, "Right"), box(0.74, 0.8, "Left")]
+        self.assertEqual(len(choose_hands(uneven)), 1)
 
 
 if __name__ == "__main__":

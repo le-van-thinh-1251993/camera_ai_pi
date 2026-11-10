@@ -24,9 +24,7 @@ def attach_lan_web(app):
             raise HTTPException(401, "LAN key không đúng")
 
     def owner_for(rt, device):
-        owner = rt.owners.get(device) or (
-            device == rt.lan_device_id and rt.lan_owner_id
-        )
+        owner = rt.owners.get(device) or (device == rt.lan_device_id and rt.lan_owner_id)
         if not owner:
             raise HTTPException(403, "Thiết bị LAN chưa được đăng ký")
         try:
@@ -63,7 +61,13 @@ def attach_lan_web(app):
         audio_url = result.get("audio_url")
         if audio_url:
             result["audio_url"] = f"/api/lan/device/{device}/jobs/{rid}/audio.wav"
-        return {"id": rid, "status": "completed", "result": result, "cloud": False, "fallback": True}
+        return {
+            "id": rid,
+            "status": "completed",
+            "result": result,
+            "cloud": False,
+            "fallback": True,
+        }
 
     @app.get("/api/lan/device/{device}/jobs/{request_id}/audio.wav")
     async def audio(device: str, request_id: str, request: Request):
@@ -79,8 +83,10 @@ def attach_lan_web(app):
             raise HTTPException(404, "Không có âm thanh")
         url = row["result"].get("audio_url", "")
         name = Path(url).name
-        if len(name) != 68 or not name.endswith(".wav") or any(
-            c not in "0123456789abcdef" for c in name[:-4]
+        if (
+            len(name) != 68
+            or not name.endswith(".wav")
+            or any(c not in "0123456789abcdef" for c in name[:-4])
         ):
             raise HTTPException(404, "Không có âm thanh")
         path = rt.data / "audio" / name

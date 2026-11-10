@@ -198,6 +198,11 @@ class CloudTransport {
     return code == 200;
   }
   IPAddress resolveLanHost() {
+#ifdef LAN_HOST_IP_VALUE
+    // IP co dinh trong secrets.h (vd. may tinh chay run_local_lan.ps1).
+    IPAddress fixed;
+    if (fixed.fromString(LAN_HOST_IP_VALUE)) return fixed;
+#endif
     if (lanHost && millis() - lanHostAt < 60000) return lanHost;
     lanHost = MDNS.queryHost(LAN_HOSTNAME);
     lanHostAt = millis();

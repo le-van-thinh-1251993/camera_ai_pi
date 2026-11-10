@@ -21,7 +21,12 @@ static constexpr uint16_t LAN_PORT = 8000;
 // Hardware flags for ESP32_BASE_BOARD_V1.2 — matched to schematic pinout.
 // Compile override -D flags are useful for checking disabled driver branches.
 #ifndef ENABLE_CAMERA
-#define ENABLE_CAMERA 0  // UI-only demo: camera disabled
+#define ENABLE_CAMERA 1  // OV3660 live; chay luan phien voi TFT (xem live_camera.h)
+#endif
+// 0 = bo DA SUA: TFT tach khoi camera (SCK=1, MOSI=2, DC=46, CS=GND, RST=EN).
+// 1 = PCB goc chua sua: TFT chung GPIO 8-12 voi camera, chay luan phien (cham).
+#ifndef SHARED_CAM_TFT_BUS
+#define SHARED_CAM_TFT_BUS 0
 #endif
 #ifndef USE_35INCH_TFT
 #define USE_35INCH_TFT 1  // ILI9488 3.5" SPI TFT confirmed on schematic
@@ -36,27 +41,39 @@ static constexpr uint16_t LAN_PORT = 8000;
 #ifndef ENABLE_I2S_AUDIO
 #define ENABLE_I2S_AUDIO 1 // MAX98357A output enabled
 #endif
-// ===== CAMERA OV3660 - ESP32-S3 =====
-static constexpr int CAM_D0 = 11;
-static constexpr int CAM_D1 = 9;
-static constexpr int CAM_D2 = 8;
-static constexpr int CAM_D3 = 10;
-static constexpr int CAM_D4 = 12;
-static constexpr int CAM_D5 = 18;
-static constexpr int CAM_D6 = 17;
-static constexpr int CAM_D7 = 16;
+// ===== CAMERA OV3660 - ESP32-S3 WROOM (FPC on board) =====
+// Theo Bang_Ket_Noi_Module_Schematic.xlsx, dong 31-46.
+// Y2..Y9 = CAM_D0..CAM_D7 (Y2 la bit thap nhat).
+//
+// Tren PCB goc Y2..Y6 (GPIO 11, 9, 8, 10, 12) noi chung voi TFT. Sau khi sua bo
+// (SHARED_CAM_TFT_BUS 0) cac chan nay chi con noi camera.
+#define PWDN_GPIO_NUM     -1   // FPC pin 8  - noi GND tren bo, khong dieu khien
+#define RESET_GPIO_NUM    -1   // FPC pin 6  - keo len 3.3V tren bo
+#define XCLK_GPIO_NUM     15   // FPC pin 13
+#define SIOD_GPIO_NUM      4   // FPC pin 3  - SCCB SDA
+#define SIOC_GPIO_NUM      5   // FPC pin 5  - SCCB SCL
 
-static constexpr int CAM_XCLK  = 15;
-static constexpr int CAM_PCLK  = 13;
-static constexpr int CAM_VSYNC = 6;
-static constexpr int CAM_HREF  = 7;
-
-static constexpr int CAM_SDA   = 4;
-static constexpr int CAM_SCL   = 5;
-static constexpr int CAM_PWDN  = -1;
-static constexpr int CAM_RESET = -1;
+#define Y9_GPIO_NUM       16   // D7 - FPC pin 12
+#define Y8_GPIO_NUM       17   // D6 - FPC pin 14
+#define Y7_GPIO_NUM       18   // D5 - FPC pin 16
+#define Y6_GPIO_NUM       12   // D4 - FPC pin 18 - TRUNG TFT_SCK
+#define Y5_GPIO_NUM       10   // D3 - FPC pin 20 - TRUNG TFT_DC
+#define Y4_GPIO_NUM        8   // D2 - FPC pin 22 - TRUNG TFT_RST
+#define Y3_GPIO_NUM        9   // D1 - FPC pin 21 - TRUNG TFT_CS
+#define Y2_GPIO_NUM       11   // D0 - FPC pin 19 - TRUNG TFT_MOSI
+#define VSYNC_GPIO_NUM     6   // FPC pin 7
+#define HREF_GPIO_NUM      7   // FPC pin 9
+#define PCLK_GPIO_NUM     13   // FPC pin 17
 
 static constexpr int CAM_XCLK_HZ = 20000000;
+
+// Live preview: QVGA 320x240 ve 1:1 len TFT 480x320, cung khung do phat MJPEG.
+#define LIVE_FRAME_SIZE FRAMESIZE_QVGA
+#define CAPTURE_FRAME_SIZE FRAMESIZE_VGA  // anh gui Pi nhan dien (640x480)
+static constexpr uint32_t AUTO_HOLD_MS = 2000;        // dem nguoc truoc khi tu chup
+static constexpr uint32_t AUTO_NEXT_ROUND_MS = 8000;  // giu ket qua roi quay lai live; 0 = cho SELECT
+static constexpr int LIVE_JPEG_QUALITY = 12;    // 10 = net hon/nang hon, 20 = nhe hon
+static constexpr uint16_t LIVE_HTTP_PORT = 80;  // /status, /capture; stream o cong 81
 
 static constexpr bool CAM_VFLIP   = false;
 static constexpr bool CAM_HMIRROR = false;
@@ -74,12 +91,28 @@ static constexpr int TFT_SPI_HZ=20000000;
 static constexpr int BTN_NEXT=-1,BTN_VOLUME_UP=-1,BTN_VOLUME_DOWN=-1,BTN_MANUAL=-1,BTN_POWER=-1;
 #endif
 
-static constexpr int AUDIO_BCLK=41,AUDIO_LRCLK=42,AUDIO_DOUT=45;
-static constexpr int AUDIO_MCLK=-1; // MAX98357A does not use MCLK
+// ===== LOA I2S MAX98357A - xlsx dong 10-17 =====
+// SD noi 3.3V (luon bat), GAIN de trong (9 dB mac dinh).
+static constexpr int AUDIO_BCLK  = 41;  // BCLK
+static constexpr int AUDIO_LRCLK = 42;  // LRC (WS)
+static constexpr int AUDIO_DOUT  = 45;  // DIN  - GPIO45 la chan strapping (VDD_SPI)
+static constexpr int AUDIO_MCLK  = -1;  // MAX98357A khong dung MCLK
 static constexpr int AUDIO_GAIN_PERCENT=60; // Digital gain, 0..100
 static constexpr bool BUTTON_ACTIVE_LOW=true; // Input pull-up; button to GND after pins verified
-// INMP441 is reserved. Gesture workflow does not record audio or run speech recognition.
-static constexpr int MIC_BCLK=39,MIC_LRCLK=40,MIC_DIN=38;  // Schematic: SCK=39, WS=40, SD=38
+
+// ===== MICRO I2S INMP441 - xlsx dong 18-23 =====
+// L/R noi GND -> kenh trai. Hien chua dung (khong ghi am).
+static constexpr int MIC_BCLK  = 39;  // SCK
+static constexpr int MIC_LRCLK = 40;  // WS
+static constexpr int MIC_DIN   = 38;  // SD
+
+// ===== NUT BO & LED TRANG THAI - xlsx dong 28-30 =====
+static constexpr int BOARD_BOOT_PIN  = 0;   // BOOT (strapping)
+static constexpr int BOARD_LED_PIN   = 2;   // LED don (do) - bo da sua: dung lam TFT MOSI
+static constexpr int BOARD_RGB_PIN   = 48;  // WS2812
+
+// ===== USB / UART - xlsx dong 52-55 (khong dung lam GPIO) =====
+// UART0 TX=43, RX=44; USB OTG D-=19, D+=20.
 static constexpr unsigned DEBOUNCE_MS=35;
 static constexpr unsigned PREVIEW_INTERVAL_MS=100;
 #define CLOUD_HTTP_TIMEOUT_MS 8000

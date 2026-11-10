@@ -138,6 +138,13 @@ def choose_hands(hands):
     ranked = sorted(hands, key=lambda h: box(h)[0], reverse=True)
     a, ax, ay = box(ranked[0])
     b, bx, by = box(ranked[1])
-    if b <= 0 or a / b >= 1.8 or math.dist((ax, ay), (bx, by)) > 0.42:
+    if b <= 0 or a / b >= 1.8:
         return ranked[:1]
-    return ranked[:2]
+    distance = math.dist((ax, ay), (bx, by))
+    if distance <= 0.42:
+        return ranked[:2]
+    # Một người giơ hai tay dang rộng: một tay trái + một tay phải, cùng cỡ, ngang nhau.
+    pair = {ranked[0].get("handedness"), ranked[1].get("handedness")} == {"Left", "Right"}
+    if pair and distance <= 0.7 and abs(ay - by) <= 0.25:
+        return ranked[:2]
+    return ranked[:1]

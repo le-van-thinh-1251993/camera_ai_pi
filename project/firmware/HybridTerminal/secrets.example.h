@@ -8,3 +8,5 @@ static constexpr char SB_UID[] = "";
 #define WIFI_SSID_VALUE ""
 #define WIFI_PASSWORD_VALUE ""
 #define LAN_API_KEY_VALUE ""
+// Tuy chon: IP cua Pi/may chay server. Bo trong thi tim ai-camera.local qua mDNS.
+// #define LAN_HOST_IP_VALUE "192.168.1.10"

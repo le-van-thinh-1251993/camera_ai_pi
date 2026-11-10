@@ -1,4 +1,4 @@
-import { el } from './api.js?v=cloud-v6-camera-upload-8';
+import { el } from './api.js?v=dash-a-2';
 
 async function optimizeImage(file) {
   let bitmap;

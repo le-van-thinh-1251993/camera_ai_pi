@@ -8,7 +8,9 @@ export function requestId() {
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
     return [...bytes]
       .map((value, index) =>
-        [4, 6, 8, 10].includes(index) ? `-${value.toString(16).padStart(2, '0')}` : value.toString(16).padStart(2, '0'),
+        [4, 6, 8, 10].includes(index)
+          ? `-${value.toString(16).padStart(2, '0')}`
+          : value.toString(16).padStart(2, '0'),
       )
       .join('');
   }

@@ -161,16 +161,26 @@ static bool validatePins() {
     if (pin==0 || pin==3 || pin==45 || pin==46 || pin==19 || pin==20) {
       Serial.printf("WARNING: GPIO %d is a strapping/USB pin; verify board boot and USB use.\n", pin);
     }
+#if ENABLE_CAMERA && TFT_KIND && SHARED_CAM_TFT_BUS
+    // PCB hien tai: TFT co y dung chung Y2..Y6, live_camera.h chia thoi gian.
+    if(pin==TFT_MOSI||pin==TFT_CS||pin==TFT_RST||pin==TFT_DC||pin==TFT_SCLK) {
+      bool camData=false;
+      for(int c:{Y2_GPIO_NUM,Y3_GPIO_NUM,Y4_GPIO_NUM,Y5_GPIO_NUM,Y6_GPIO_NUM}) if(c==pin) camData=true;
+      if(camData) {if(count<64) used[count++]=pin; return;}
+    }
+#endif
     for(size_t i=0;i<count;i++) if(used[i]==pin) ok=false;
     if(count<64) used[count++]=pin; else ok=false;
   };
 #if ENABLE_CAMERA
-  for(int pin:{CAM_D0,CAM_D1,CAM_D2,CAM_D3,CAM_D4,CAM_D5,CAM_D6,CAM_D7,CAM_PCLK,CAM_VSYNC,CAM_HREF}) add(pin,true,false);
-  for(int pin:{CAM_XCLK,CAM_SDA,CAM_SCL}) add(pin,true,true);
-  add(CAM_PWDN,false,true); add(CAM_RESET,false,true);
+  for(int pin:{Y2_GPIO_NUM,Y3_GPIO_NUM,Y4_GPIO_NUM,Y5_GPIO_NUM,Y6_GPIO_NUM,Y7_GPIO_NUM,Y8_GPIO_NUM,Y9_GPIO_NUM,
+               PCLK_GPIO_NUM,VSYNC_GPIO_NUM,HREF_GPIO_NUM}) add(pin,true,false);
+  for(int pin:{XCLK_GPIO_NUM,SIOD_GPIO_NUM,SIOC_GPIO_NUM}) add(pin,true,true);
+  add(PWDN_GPIO_NUM,false,true); add(RESET_GPIO_NUM,false,true);
 #endif
 #if TFT_KIND
-  for(int pin:{TFT_SCLK,TFT_MOSI,TFT_CS,TFT_DC}) add(pin,true,true);
+  for(int pin:{TFT_SCLK,TFT_MOSI,TFT_DC}) add(pin,true,true);
+  add(TFT_CS,false,true); // -1 khi CS noi GND (bo da sua)
   add(TFT_MISO,false,false);add(TFT_RST,false,true);add(TFT_BL,false,true);
   if(TFT_NATIVE_WIDTH<=0 || TFT_NATIVE_HEIGHT<=0) ok=false;
 #endif
@@ -184,22 +194,15 @@ static bool validatePins() {
 static bool beginHardware() {
   if(!validatePins()) {Serial.println("CONFIG ERROR: missing/duplicate/invalid GPIO or panel dimensions; hardware not started.");return false;}
 #if TFT_KIND
-  lcd.init();lcd.setRotation(TFT_ROTATION);lcd.fillScreen(0);lcdReady=true;
+  lcd.init();
+  if(TFT_RST<0){ // RESET noi EN: reset mem (0x01) phong khi ESP32 khoi dong lai bang phan mem
+    lcd.startWrite();lcd.writeCommand(0x01);lcd.endWrite();delay(150);lcd.init();
+  }
+  lcd.setRotation(TFT_ROTATION);lcd.fillScreen(0);lcdReady=true;
   if(TFT_BL>=0){pinMode(TFT_BL,OUTPUT);digitalWrite(TFT_BL,TFT_BL_ACTIVE_HIGH?HIGH:LOW);}
 #endif
-#if ENABLE_CAMERA
-  camera_config_t c={};c.ledc_channel=LEDC_CHANNEL_0;c.ledc_timer=LEDC_TIMER_0;
-  c.pin_d0=CAM_D0;c.pin_d1=CAM_D1;c.pin_d2=CAM_D2;c.pin_d3=CAM_D3;
-  c.pin_d4=CAM_D4;c.pin_d5=CAM_D5;c.pin_d6=CAM_D6;c.pin_d7=CAM_D7;
-  c.pin_xclk=CAM_XCLK;c.pin_pclk=CAM_PCLK;c.pin_vsync=CAM_VSYNC;c.pin_href=CAM_HREF;
-  c.pin_sccb_sda=CAM_SDA;c.pin_sccb_scl=CAM_SCL;c.pin_pwdn=CAM_PWDN;c.pin_reset=CAM_RESET;
-  c.xclk_freq_hz=CAM_XCLK_HZ;c.pixel_format=PIXFORMAT_JPEG;c.frame_size=FRAMESIZE_VGA;
-  c.jpeg_quality=10;c.fb_count=psramFound()?2:1;c.grab_mode=CAMERA_GRAB_LATEST;
-  c.fb_location=psramFound()?CAMERA_FB_IN_PSRAM:CAMERA_FB_IN_DRAM;
-  cameraReady=esp_camera_init(&c)==ESP_OK;
-  if(cameraReady){auto sensor=esp_camera_sensor_get();sensor->set_vflip(sensor,CAM_VFLIP);sensor->set_hmirror(sensor,CAM_HMIRROR);}
-  else Serial.println("Camera initialization failed; inspect verified camera config.");
-#endif
+  // Camera khoi tao trong live_camera.h (liveCameraBegin); PCB goc can goi
+  // truoc lcd.init() de nhuong bus dung chung dung thu tu.
   return true;
 }
 static int screenWidth(){

@@ -132,22 +132,61 @@ Dashboard ESP32 hiển thị ảnh gửi gần nhất; **camera trực tiếp đ
 
 Dùng duy nhất `project/firmware/HybridTerminal`. Giữ `secrets.h` của thiết bị đang có; ZIP không chứa khóa. File `secrets.example.h` chỉ là mẫu trống.
 
+### Camera live (TFT + dashboard)
+
+Arduino IDE: core **esp32 3.0.x**, thư viện **LovyanGFX**, board *ESP32S3 Dev Module*,
+`PSRAM: OPI PSRAM`, `Flash Size: 16MB`, `Partition: 16M Flash (3MB APP/9.9MB FATFS)`.
+Khai báo `WIFI_SSID_VALUE`/`WIFI_PASSWORD_VALUE` trong `secrets.h` để bật stream.
+
+Mặc định firmware dành cho **bo đã sửa** (`SHARED_CAM_TFT_BUS 0` trong `config.h`):
+chân 8–12 của socket TFT được cắt khỏi ESP32 và nối dây lại như sau:
+
+| TFT | Nối tới |
+| --- | --- |
+| SCK | GPIO1 |
+| SDI/MOSI | GPIO2 (chung đường với LED đỏ trên bo) |
+| DC/RS | GPIO46 (chân strapping, để trống khi nạp code) |
+| CS | GND |
+| RESET | EN |
+
+Camera và TFT chạy đồng thời. Mỗi vòng loop lấy khung QVGA mới nhất, vẽ 1:1 lên TFT
+và phát cùng khung đó ở `http://<ip-esp32>:81/stream`; Pi chuyển tiếp qua
+`/api/esp32/live/stream` (đặt `ESP32_LIVE_HOST` nếu không dùng `esp32-01.local`).
+Dashboard tự hiện live khi chọn nguồn camera ESP32.
+
+Bo **chưa sửa**: đặt `SHARED_CAM_TFT_BUS 1`. Khi đó TFT dùng lại GPIO 8–12 chung với
+camera, `live_camera.h` chạy luân phiên từng khung (bật/tắt chân xuất cảm biến qua SCCB),
+chậm hơn nhiều.
+
+Serial Monitor (115200): `b s + -` giả lập 4 nút, `i` in FPS và thời gian chụp/vẽ.
+
 ### Giao diện TFT và nút vật lý
 
-Khi bật `USE_35INCH_TFT=1`, màn hình có các trạng thái:
+Giao diện “Đêm xanh · thẻ kết quả”, chữ tiếng Việt có dấu:
 
-- **Greeting:** “Xin chào thầy và các bạn đến với buổi Demo bài tập lớn.” và phát audio greeting.
-- **Camera:** khung preview lớn để căn bàn tay; sau khi nhận diện sẽ tắt preview.
-- **Kết quả:** hiển thị tên kết quả và phần “Ý nghĩa / Loa đọc” đúng bằng text audio.
-- **Manual:** chờ thao tác trên dashboard, sau đó hiển thị và phát kết quả giống chế độ Auto.
+- **Màn chào:** “Xin chào!” và phát lời chào qua loa. SELECT để vào live.
+- **Live:** khung camera 320×240 bên trái; cột phải có thẻ **Kết quả** và **Ý nghĩa**;
+  footer hiện chế độ, chức năng SELECT và âm lượng.
+  - **AUTO:** giữ yên tay 2 giây (thanh đếm ngược dưới khung) rồi tự chụp và gửi Pi.
+  - **MANUAL:** giơ tay cố định vào khung rồi nhấn SELECT để chụp.
+- **Kết quả:** ảnh vừa chụp đứng yên, hiện số ngón và câu ý nghĩa, loa đọc câu đó;
+  8 giây sau (`AUTO_NEXT_ROUND_MS`) tự quay lại live.
 
-Bốn nút chức năng là `BTN_NEXT`, `BTN_VOLUME_UP`, `BTN_VOLUME_DOWN`,
-`BTN_MANUAL`; nút riêng `BTN_POWER` chuyển sang/từ trạng thái standby. Nút nguồn
-chỉ thực sự cắt điện nếu phần cứng có mạch power-latch; firmware không tự cắt được
-nguồn 5V. Theo bảng schematic, preset TFT dùng các chân:
-`BACK1=GPIO3`, `SELECT1=GPIO14`, `UP1=GPIO47`, `DOWN1=GPIO21`.
+| Nút | GPIO | Chức năng |
+| --- | --- | --- |
+| BACK1 | 47 | Đổi AUTO / MANUAL |
+| SELECT1 | 21 | Bắt đầu · chụp (MANUAL) · chụp ngay (AUTO) · live tiếp |
+| DOWN1 | 3 | Tăng âm lượng |
+| UP1 | 14 | Giảm âm lượng |
 
-Các chân camera OV3660 vẫn để `-1` vì bảng kết nối không cung cấp pinout DVP.
+Font (Noto Sans, SIL OFL) và lời chào được nhúng vào firmware bằng
+`python scripts/make_tft_assets.py`, tạo `fonts_vi.h` và `welcome_audio.h`.
+Đổi file lời chào: `python scripts/make_tft_assets.py --skip-fonts --wav <file.wav>`
+(WAV mono 16-bit, 8–48 kHz).
+
+Camera OV3660 (theo bảng kết nối, `config.h`): `XCLK=15`, `SIOD=4`, `SIOC=5`,
+`Y9..Y2 = 16, 17, 18, 12, 10, 8, 9, 11`, `VSYNC=6`, `HREF=7`, `PCLK=13`,
+`PWDN=-1`, `RESET=-1`.
 ILI9488, MAX98357A/loa và 4 nút đã có mapping theo schematic; vẫn cần thử
 nghiệm phần cứng thực tế. INMP441 được để dự phòng; bài toán cử chỉ hiện không
 thu mic/ASR.

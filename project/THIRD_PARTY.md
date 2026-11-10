@@ -12,3 +12,5 @@ Các ảnh là tài nguyên kiểm thử bên thứ ba; tham khảo điều kho�
 Ảnh no_hand.png được tạo riêng cho dự án. Không dùng YOLO hoặc model YOLO.
 
 Ảnh victory_back.jpg của bản trước do người dùng cung cấp cho hồi quy; quyền phát hành lại chưa xác minh. Gói v6 không chứa ảnh này và không gán giấy phép dự án cho nó.
+
+Firmware `fonts_vi.h` chứa glyph tạo từ font Noto Sans (Google), giấy phép SIL Open Font License 1.1; xem https://openfontlicense.org.

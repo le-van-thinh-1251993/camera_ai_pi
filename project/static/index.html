@@ -4,216 +4,280 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Gesture to Speech</title>
-    <link rel="stylesheet" href="/static/style.css?v=local-test-1" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap"
+    />
+    <link rel="stylesheet" href="/static/style.css?v=dash-a-2" />
   </head>
   <body>
-    <header>
-      <div>
-        <small>CỬ CHỈ · KẾT NỐI · GIAO TIẾP</small>
+    <header class="top">
+      <div class="brand">
+        <small>NHẬN DIỆN CỬ CHỈ TAY</small>
         <h1>Gesture to Speech</h1>
       </div>
       <div class="header-actions">
-        <button id="theme" class="secondary" type="button" aria-label="Đổi sáng tối">☀ / ☾</button
-        ><span id="health" role="status">Đang kiểm tra hệ thống…</span
-        ><button id="settings-open" class="secondary" type="button" aria-label="Mở cài đặt kết nối">
-          ⚙️
+        <span id="health" class="pill" role="status">Đang kiểm tra hệ thống…</span
+        ><button id="theme" class="icon-button" type="button" aria-label="Đổi sáng tối">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+          </svg></button
+        ><button id="settings-open" class="icon-button" type="button" aria-label="Cài đặt">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
         </button>
       </div>
     </header>
+
     <main>
-      <section id="preview-panel" aria-label="Nguồn hình ảnh">
-        <div class="tabs" role="tablist" aria-label="Chọn nguồn nhận diện">
-          <button id="tab-upload" role="tab" aria-selected="true" aria-controls="panel-upload">
-            Tải ảnh lên
-          </button>
-          <button
-            id="tab-camera"
-            role="tab"
-            aria-selected="false"
-            aria-controls="panel-camera"
-            tabindex="-1"
-          >
-            Camera trực tiếp
+      <section
+        id="preview-panel"
+        class="card source-card"
+        data-source="upload"
+        aria-label="Nguồn hình ảnh"
+      >
+        <div class="source-row">
+          <div class="segmented" role="group" aria-label="Nguồn hình ảnh">
+            <button id="src-esp32" type="button" aria-pressed="false">ESP32</button
+            ><button id="src-phone" type="button" aria-pressed="false">Camera máy này</button
+            ><button id="src-upload" type="button" aria-pressed="true">Tải ảnh</button>
+          </div>
+          <button id="stats-open" class="secondary stats-button" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></svg
+            >Biểu đồ
           </button>
         </div>
-        <div class="preview-heading">
-          <h2 id="preview-title">Ảnh nhận diện</h2>
-        </div>
+
         <div class="preview">
           <div id="placeholder">Chọn ảnh hoặc bật camera để bắt đầu</div>
           <img id="photo" alt="Ảnh đang nhận diện" hidden />
+          <img id="device-live" alt="Camera ESP32 trực tiếp" hidden />
+          <span id="device-live-badge" class="badge live" hidden>● LIVE</span>
+          <span id="file-info" class="badge" hidden></span>
           <canvas id="live-preview" hidden aria-label="Camera trực tiếp trong khung hình"></canvas>
           <canvas id="marks" aria-hidden="true"></canvas>
-        </div>
-        <p id="connection" role="status">Đang kết nối nhận kết quả…</p>
-        <details class="count-options">
-          <summary>Cách đếm bàn tay</summary>
-          <label
-            ><input id="count-all" type="checkbox" /> Cộng tất cả tay nhìn thấy (dùng khi đếm 6–10
-            ngón)</label
-          >
-        </details>
-        <div id="panel-upload" role="tabpanel" aria-labelledby="tab-upload">
-          <form id="form">
-            <label for="file">Chọn ảnh bàn tay (JPEG / PNG, tối đa 15 MB)</label
-            ><input id="file" type="file" accept="image/jpeg,image/png" required /><button
-              id="upload-button"
-              type="submit"
-            >
-              Nhận diện ảnh
-            </button>
-          </form>
-          <div class="focus-tools">
-            <button id="focus-select" type="button" class="secondary" disabled>
-              Chọn tay trong ảnh</button
-            ><span id="focus-status">Ảnh nhiều người: chọn vùng tay cần đếm.</span>
-          </div>
-        </div>
-        <div id="panel-camera" role="tabpanel" aria-labelledby="tab-camera" hidden>
-          <details id="camera-options" open>
-            <summary>Nguồn camera và chế độ</summary>
-            <label for="camera-source">Nguồn camera</label>
-            <select id="camera-source">
-              <option value="device">Camera điện thoại / máy này · Cloud</option>
-              <option value="cloud">ESP32 · Supabase Cloud</option>
-            </select>
-            <div id="phone-controls">
-              <label for="phone-mode">Chế độ camera thiết bị này</label
-              ><select id="phone-mode" aria-label="Chế độ camera Auto hoặc Manual">
-                <option value="auto">Auto · Giữ cử chỉ 2 giây</option>
-                <option value="manual">Manual · Dừng hình và nhận diện</option>
-              </select>
-              <select id="phone-facing" aria-label="Chọn camera điện thoại">
-                <option value="environment">Camera sau</option>
-                <option value="user">Camera trước</option>
-              </select>
-            </div>
-            <div id="device-controls" hidden>
-              <label for="device-id">Thiết bị ESP32</label
-              ><input
-                id="device-id"
-                value="esp32-01"
-                maxlength="32"
-                pattern="[A-Za-z0-9_-]{1,32}"
-              />
-              <p id="device-status" role="status">Đang chờ kết nối thiết bị.</p>
-              <div class="device-modes" role="group" aria-label="Chế độ ESP32">
-                <button type="button" id="device-auto" aria-pressed="false">
-                  Auto · Giữ 2 giây</button
-                ><button type="button" id="device-manual" class="secondary" aria-pressed="false">
-                  Manual · Bấm nhận diện
-                </button>
-              </div>
-              <div class="device-actions">
-                <button id="device-start" type="button">Tiếp tục camera</button
-                ><button id="device-stop" class="secondary" type="button">
-                  Dừng / cố định hình</button
-                ><button id="device-capture" type="button">Nhận diện hình đã dừng</button>
-              </div>
-              <details class="device-extra">
-                <summary>Thêm thao tác trên ESP32</summary>
-                <div class="device-actions">
-                  <button id="device-home" class="secondary" type="button">Home / Menu</button
-                  ><button id="device-replay" class="secondary" type="button">
-                    Đọc lại trên loa ESP32</button
-                  ><button id="device-greeting" class="secondary" type="button">
-                    Lời chào trên ESP32
-                  </button>
-                </div>
-              </details>
-              <p id="device-error" role="alert"></p>
-            </div>
-          </details>
-          <div id="phone-manual-controls" class="device-actions" hidden>
-            <button id="phone-freeze" class="secondary" type="button" disabled>
-              Dừng / tiếp tục hình</button
-            ><button id="phone-capture" type="button" disabled>Nhận diện hình đã dừng</button>
-          </div>
-          <div id="camera-actions" class="camera-controls">
-            <button id="camera-start" type="button">Bật camera</button
-            ><button id="camera-stop" class="secondary" type="button" disabled>Dừng</button>
-          </div>
-          <p id="camera-status" role="status">Camera đang tắt.</p>
-          <p class="hint">
-            Giữ cùng một cử chỉ khoảng 2 giây để xác nhận. Đổi cử chỉ hoặc bỏ tay khỏi khung hình
-            trước lần đọc tiếp theo.
-          </p>
+          <span id="hold-status" class="countdown camera-only" role="status"></span>
           <progress
             id="hold-progress"
+            class="camera-only"
             max="2"
             value="0"
             aria-label="Thời gian giữ cử chỉ"
           ></progress>
-          <p id="hold-status" role="status">Chưa có cử chỉ để xác nhận.</p>
         </div>
+
+        <!-- Camera: ESP32 / camera máy này -->
+        <div class="controls camera-only">
+          <div class="segmented" role="group" aria-label="Chế độ chụp">
+            <button id="mode-auto" type="button" aria-pressed="true">Auto · giữ 2 giây</button
+            ><button id="mode-manual" type="button" aria-pressed="false">Manual</button>
+          </div>
+          <span id="device-controls" class="esp32-only">
+            <button id="device-capture" type="button">Chụp ngay</button>
+          </span>
+          <span id="camera-actions" class="phone-only">
+            <button id="camera-start" type="button">Bật camera</button
+            ><button id="camera-stop" class="secondary" type="button" disabled>Dừng</button>
+          </span>
+          <span id="phone-manual-controls" class="phone-only" hidden>
+            <button id="phone-freeze" class="secondary" type="button" disabled>Dừng hình</button
+            ><button id="phone-capture" type="button" disabled>Chụp ảnh</button>
+          </span>
+          <button id="resume-round" type="button" hidden>Nhận diện tiếp</button>
+        </div>
+        <p id="camera-status" class="status camera-only" role="status">Camera đang tắt.</p>
+
+        <!-- Tai anh len -->
+        <form id="form" class="controls upload-only">
+          <input id="file" class="visually-hidden" type="file" accept="image/jpeg,image/png" />
+          <label for="file" class="button secondary-accent">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></svg
+            >Tải ảnh lên</label
+          ><button id="upload-clear" class="secondary danger" type="button" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg
+            >Xoá ảnh</button
+          ><button id="focus-select" class="secondary" type="button" disabled>
+            Chọn tay trong ảnh</button
+          ><button id="upload-button" class="push-right" type="submit" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>Gửi
+            nhận diện
+          </button>
+        </form>
+        <p id="focus-status" class="status upload-only">
+          JPEG hoặc PNG, tối đa 15 MB. Ảnh nhiều người: bấm “Chọn tay trong ảnh”.
+        </p>
+
         <p id="error" role="alert"></p>
       </section>
-      <section class="output" aria-label="Kết quả giao tiếp">
-        <p id="processing" role="status" hidden>Đang nhận diện ảnh…</p>
-        <div id="result-content" aria-live="polite" aria-atomic="true">
-          <div class="result-label">Kết quả nhận diện</div>
-          <div id="gesture" class="empty">
-            Hãy đưa cử chỉ vào đúng khung hình camera hoặc gửi ảnh để AI nhận diện
+
+      <div class="side">
+        <section class="card result" aria-label="Kết quả">
+          <p id="processing" role="status" hidden>Đang nhận diện ảnh…</p>
+          <div id="result-content" aria-live="polite" aria-atomic="true">
+            <div class="label">KẾT QUẢ</div>
+            <div id="gesture">—</div>
+            <div class="label meaning-label">Ý NGHĨA</div>
+            <h2 id="phrase">Đưa tay vào khung camera hoặc tải ảnh lên để bắt đầu.</h2>
           </div>
-          <div class="result-label meaning-label">Ý nghĩa</div>
-          <h2 id="phrase">Chưa nhận diện được cử chỉ</h2>
-        </div>
-        <button id="resume-round" type="button" hidden>Nhận diện tiếp</button>
-        <div class="audio-controls">
-          <button id="speak" type="button" disabled>▶ Đọc lại</button
-          ><button id="greeting" class="secondary" type="button">Phát lời chào</button>
-        </div>
-        <label class="switch"
-          ><input id="auto" type="checkbox" role="switch" checked /><span>Tự động đọc</span></label
-        >
-        <p class="hint">Âm thanh phát trên thiết bị đang mở trang. Nếu bị chặn, bấm “Đọc lại”.</p>
-        <details class="technical">
-          <summary>Chi tiết nhận diện</summary>
-          <p id="confidence">Độ tin cậy: —</p>
-          <p id="hand-summary"></p>
-          <p id="duration">Thời gian xử lý: —</p>
-          <p id="speech-status" class="hint"></p>
-        </details>
-      </section>
-      <section class="wide history">
-        <details>
-          <summary>Lịch sử gần đây</summary>
-          <p class="hint">
-            Ảnh camera được nhận diện theo từng khung hình; câu nói chỉ được xác nhận sau khi giữ ổn
-            định.
-          </p>
-          <p id="history-empty">Chưa có kết quả nhận diện.</p>
-          <div class="table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Thời gian</th>
-                  <th>Nguồn</th>
-                  <th>Cử chỉ</th>
-                  <th>Ý nghĩa</th>
-                  <th>Độ tin cậy</th>
-                </tr>
-              </thead>
-              <tbody id="rows"></tbody>
-            </table>
+          <div class="audio-controls">
+            <button id="speak" class="secondary-accent" type="button" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 9h4l5-4v14l-5-4H4zM16 8.5a5 5 0 0 1 0 7" /></svg
+              >Đọc lại</button
+            ><label class="switch"
+              ><input id="auto" type="checkbox" role="switch" checked /><span
+                >Tự động đọc</span
+              ></label
+            >
           </div>
-        </details>
-      </section>
+          <p id="duration" class="meta">Chưa có lần nhận diện nào.</p>
+        </section>
+
+        <section class="card recent" aria-label="Gần đây">
+          <div class="recent-head">
+            <h2>Gần đây</h2>
+            <button id="history-toggle" class="link" type="button" aria-expanded="false">
+              Xem tất cả
+            </button>
+          </div>
+          <p id="history-empty" class="status">Chưa có kết quả nhận diện.</p>
+          <ul id="rows"></ul>
+        </section>
+      </div>
     </main>
+
+    <section id="stats-view" class="stats" aria-labelledby="stats-title" hidden>
+      <div class="stats-head">
+        <button id="stats-close" class="secondary" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>Quay lại
+        </button>
+        <h2 id="stats-title">Biểu đồ nhận diện</h2>
+        <div class="segmented" role="group" aria-label="Khoảng thời gian">
+          <button type="button" data-range="today" aria-pressed="true">Hôm nay</button
+          ><button type="button" data-range="7d" aria-pressed="false">7 ngày</button
+          ><button type="button" data-range="all" aria-pressed="false">Tất cả</button>
+        </div>
+        <span id="stats-updated" class="live-note" role="status"></span>
+      </div>
+
+      <div class="stats-grid">
+        <article class="card chart-card">
+          <h3>Tỉ lệ nhận diện</h3>
+          <p class="chart-sub">Mỗi lần nhận diện thuộc một trong ba kết quả.</p>
+          <div class="donut-wrap">
+            <div id="chart-donut" class="chart"></div>
+            <ul id="donut-legend" class="legend"></ul>
+          </div>
+          <details class="chart-table">
+            <summary>Xem dạng bảng</summary>
+            <table id="table-donut"></table>
+          </details>
+        </article>
+
+        <article class="card chart-card">
+          <h3>Kết quả theo nguồn ảnh</h3>
+          <p class="chart-sub">Tỉ lệ trong từng nguồn — nguồn nào nhận diện tốt nhất.</p>
+          <ul class="legend inline" aria-hidden="true">
+            <li><span class="swatch ok"></span>Nhận diện được</li>
+            <li><span class="swatch warn"></span>Chưa rõ</li>
+            <li><span class="swatch bad"></span>Không thấy tay</li>
+          </ul>
+          <div id="chart-sources" class="chart"></div>
+          <details class="chart-table">
+            <summary>Xem dạng bảng</summary>
+            <table id="table-sources"></table>
+          </details>
+        </article>
+
+        <article class="card chart-card wide">
+          <div class="chart-title-row">
+            <div>
+              <h3>Thời gian xử lý</h3>
+              <p class="chart-sub">Từng lần nhận diện, cũ → mới (tối đa 60 lần gần nhất).</p>
+            </div>
+            <div id="latency-hero" class="hero"></div>
+          </div>
+          <div id="chart-latency" class="chart"></div>
+          <details class="chart-table">
+            <summary>Xem dạng bảng</summary>
+            <table id="table-latency"></table>
+          </details>
+        </article>
+      </div>
+      <div id="chart-tooltip" class="chart-tooltip" role="tooltip" hidden></div>
+    </section>
+
     <dialog id="settings-dialog" aria-labelledby="settings-title">
       <div class="dialog-heading">
-        <h2 id="settings-title">Cài đặt kết nối</h2>
-        <button id="settings-close" class="secondary" aria-label="Đóng cài đặt">✕</button>
+        <h2 id="settings-title">Cài đặt</h2>
+        <button id="settings-close" class="icon-button" type="button" aria-label="Đóng cài đặt">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
       </div>
-      <p class="hint">
-        Dashboard yêu cầu API_KEY trong file .env trên Pi. Đây không phải anon key của Supabase.
-        Khóa chỉ giữ trong tab hiện tại.
-      </p>
-      <label for="key">Khóa kết nối (API key)</label
-      ><input id="key" type="password" autocomplete="off" placeholder="Nhập khóa kết nối" />
-      <button id="connect" type="button">Kết nối lại</button>
-      <p id="settings-status" role="status"></p>
+
+      <section id="key-section" class="settings-group">
+        <h3>Kết nối Pi</h3>
+        <p class="hint">
+          Nhập API_KEY trong file .env trên Pi (không phải anon key của Supabase). Khóa chỉ giữ
+          trong tab hiện tại.
+        </p>
+        <label for="key">Khóa kết nối (API key)</label
+        ><input id="key" type="password" autocomplete="off" placeholder="Nhập khóa kết nối" />
+        <button id="connect" type="button">Kết nối lại</button>
+        <p id="settings-status" class="status" role="status"></p>
+      </section>
+      <p id="connection" class="status" role="status">Đang kết nối nhận kết quả…</p>
+
+      <section class="settings-group">
+        <h3>Thiết bị ESP32</h3>
+        <label for="device-id">Mã thiết bị</label
+        ><input id="device-id" value="esp32-01" maxlength="32" pattern="[A-Za-z0-9_-]{1,32}" />
+        <p id="device-status" class="status" role="status">Đang chờ kết nối thiết bị.</p>
+        <div class="button-row">
+          <button id="device-start" class="secondary" type="button">Tiếp tục camera</button
+          ><button id="device-stop" class="secondary" type="button">Dừng hình</button
+          ><button id="device-home" class="secondary" type="button">Home / Menu</button
+          ><button id="device-replay" class="secondary" type="button">Đọc lại trên loa</button
+          ><button id="device-greeting" class="secondary" type="button">Lời chào trên ESP32</button>
+        </div>
+        <p id="device-error" role="alert"></p>
+      </section>
+
+      <section class="settings-group">
+        <h3>Nhận diện</h3>
+        <label class="check"
+          ><input id="count-all" type="checkbox" /> Cộng tất cả tay nhìn thấy (đếm 6–10 ngón)</label
+        >
+        <label for="phone-facing">Camera của máy này</label>
+        <select id="phone-facing">
+          <option value="environment">Camera sau</option>
+          <option value="user">Camera trước</option>
+        </select>
+        <button id="greeting" class="secondary" type="button">Phát lời chào trên máy này</button>
+      </section>
+
+      <details class="settings-group">
+        <summary>Chi tiết lần nhận diện gần nhất</summary>
+        <p id="confidence"></p>
+        <p id="hand-summary"></p>
+        <p id="speech-status"></p>
+      </details>
+
+      <!-- Trang thai an: JS doc gia tri tu day -->
+      <select id="camera-source" hidden>
+        <option value="device">device</option>
+        <option value="cloud">cloud</option>
+      </select>
+      <select id="phone-mode" hidden>
+        <option value="auto">auto</option>
+        <option value="manual">manual</option>
+      </select>
     </dialog>
-    <script type="module" src="/static/app.js?v=local-test-1"></script>
+    <script type="module" src="/static/app.js?v=dash-a-2"></script>
   </body>
 </html>

@@ -3,7 +3,6 @@
 import asyncio
 import contextlib
 import hashlib
-import json
 import logging
 import os
 import time
@@ -191,9 +190,7 @@ class CloudRuntime:
         heartbeat = asyncio.create_task(self.renew(job))
         try:
             raw = await self.call(self.client.download, "ai-images", frames[0]["path"])
-            row = await self.call(
-                self.jobs.put_image, rid, job["device_id"], owner, raw, options
-            )
+            row = await self.call(self.jobs.put_image, rid, job["device_id"], owner, raw, options)
             event = (
                 row["result"]
                 if row["result"] and row["result"].get("pipeline_version") == 6
@@ -384,10 +381,7 @@ class CloudRuntime:
                 self.state.update(connected=True, last_error=None)
                 if not was_connected:
                     self.outbox_retry_after.clear()
-                if (
-                    not self.greeting_uploaded
-                    and time.monotonic() >= self.greeting_retry_after
-                ):
+                if not self.greeting_uploaded and time.monotonic() >= self.greeting_retry_after:
                     try:
                         await self.ensure_greeting()
                     except Exception as exc:
@@ -453,7 +447,9 @@ class CloudRuntime:
                     continue
                 image_data = image.read_bytes()
                 image_path = f"{row['owner']}/{row['id']}.jpg"
-                await self.call(self.client.upload, "ai-images", image_path, image_data, "image/jpeg")
+                await self.call(
+                    self.client.upload, "ai-images", image_path, image_data, "image/jpeg"
+                )
                 payload = dict(row["input"])
                 payload["pipeline_version"] = 6
                 payload["source"] = payload.get("source", "browser")
@@ -508,7 +504,11 @@ class CloudRuntime:
                 if audio_url:
                     audio_name = Path(audio_url).name
                     audio_file = self.data / "audio" / audio_name
-                    if audio_file.is_file() and len(audio_name) == 68 and audio_name.endswith(".wav"):
+                    if (
+                        audio_file.is_file()
+                        and len(audio_name) == 68
+                        and audio_name.endswith(".wav")
+                    ):
                         digest = hashlib.sha256(audio_file.read_bytes()).hexdigest()
                         audio_path = f"{row['owner']}/voices/{digest}.wav"
                         await self.call(

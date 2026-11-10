@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -18,6 +18,8 @@ from app.cloud_worker import CloudRuntime
 from app.cloud_web import attach_cloud_web
 from app.cloud_control import attach_cloud_control
 from app.lan_web import attach_lan_web
+from app.esp32_live import attach_esp32_live
+from app.stats import compute_stats
 
 DATA = Path(os.getenv("DATA_DIR", str(BASE / "data"))).resolve()
 for directory in (DATA, DATA / "audio", DATA / "logs", DATA / "hybrid"):
@@ -257,6 +259,18 @@ async def history(limit: int = 50):
         ]
 
 
+@app.get("/api/stats", dependencies=[Depends(auth)])
+async def stats(range_name: str = Query("today", alias="range")):
+    with closing(sqlite3.connect(DATA / "history.db")) as db:
+        events = [
+            json.loads(row[0]) for row in db.execute("SELECT payload FROM events ORDER BY id")
+        ]
+    try:
+        return compute_stats(events, range_name)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+
 @app.get("/api/audio/{name}", dependencies=[Depends(auth)])
 async def audio(name: str):
     if (
@@ -320,3 +334,4 @@ async def retired(path: str = ""):
 attach_cloud_web(app, auth)
 attach_cloud_control(app, auth)
 attach_lan_web(app)
+attach_esp32_live(app, KEY)

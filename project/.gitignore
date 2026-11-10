@@ -8,3 +8,4 @@ systemd/ai-camera.service
 private/
 backups/
 firmware/**/secrets.h
+node_modules/

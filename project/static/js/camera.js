@@ -1,4 +1,4 @@
-import { el, sleep } from './api.js?v=cloud-v6-camera-upload-8';
+import { el, sleep } from './api.js?v=dash-a-2';
 export class CameraController {
   constructor(jobs, ui) {
     this.jobs = jobs;
