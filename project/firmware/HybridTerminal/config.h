@@ -18,6 +18,7 @@ static constexpr char WIFI_PASSWORD[] = WIFI_PASSWORD_VALUE;
 static constexpr char DEVICE_ID[] = "esp32-01";
 static constexpr char LAN_HOSTNAME[] = "ai-camera";
 static constexpr uint16_t LAN_PORT = 8000;
+static constexpr uint16_t LAN_DISCOVERY_PORT = 8002;  // UDP, xem app/lan_discovery.py
 // Hardware flags for ESP32_BASE_BOARD_V1.2 — matched to schematic pinout.
 // Compile override -D flags are useful for checking disabled driver branches.
 #ifndef ENABLE_CAMERA
@@ -68,15 +69,21 @@ static constexpr uint16_t LAN_PORT = 8000;
 static constexpr int CAM_XCLK_HZ = 20000000;
 
 // Live preview: QVGA 320x240 ve 1:1 len TFT 480x320, cung khung do phat MJPEG.
-#define LIVE_FRAME_SIZE FRAMESIZE_QVGA
+#define LIVE_FRAME_SIZE FRAMESIZE_QVGA  // QVGA 320x240 ~5 fps | HQVGA 240x176 ~9 fps (SPI 10 MHz)
 #define CAPTURE_FRAME_SIZE FRAMESIZE_VGA  // anh gui Pi nhan dien (640x480)
 static constexpr uint32_t AUTO_HOLD_MS = 2000;        // dem nguoc truoc khi tu chup
 static constexpr uint32_t AUTO_NEXT_ROUND_MS = 8000;  // giu ket qua roi quay lai live; 0 = cho SELECT
-static constexpr int LIVE_JPEG_QUALITY = 12;    // 10 = net hon/nang hon, 20 = nhe hon
+static constexpr int LIVE_JPEG_QUALITY = 8;     // so nho = net hon (it vet khoi), QVGA ~10-15 KB
+static constexpr int CAM_SHARPNESS = 2;         // -2..2 (OV3660): tang do sac net
+static constexpr int CAM_DENOISE = 3;           // 0..8: giam hat nhieu (cao qua -> mo chi tiet)
+#define CAM_GAINCEILING GAINCEILING_16X         // 4X: it hat nhung toi; 16X: sang hon; 32X+: rat hat
+static constexpr int CAM_AE_LEVEL = 1;          // -2..2: bu phoi sang (+ = sang hon)
+static constexpr int CAM_BRIGHTNESS = 1;        // -2..2
 static constexpr uint16_t LIVE_HTTP_PORT = 80;  // /status, /capture; stream o cong 81
 
-static constexpr bool CAM_VFLIP   = false;
-static constexpr bool CAM_HMIRROR = false;
+// Xoay 180 do = lat doc + lat ngang (ap dung ca TFT, stream va anh gui Pi)
+static constexpr bool CAM_VFLIP   = true;
+static constexpr bool CAM_HMIRROR = true;
 
 #if !USE_35INCH_TFT
 static constexpr int TFT_SCLK=-1,TFT_MOSI=-1,TFT_MISO=-1,TFT_CS=-1,TFT_DC=-1,TFT_RST=-1;
@@ -109,7 +116,7 @@ static constexpr int MIC_DIN   = 38;  // SD
 // ===== NUT BO & LED TRANG THAI - xlsx dong 28-30 =====
 static constexpr int BOARD_BOOT_PIN  = 0;   // BOOT (strapping)
 static constexpr int BOARD_LED_PIN   = 2;   // LED don (do) - bo da sua: dung lam TFT MOSI
-static constexpr int BOARD_RGB_PIN   = 48;  // WS2812
+static constexpr int BOARD_RGB_PIN   = -1;  // WS2812 tren GPIO48 - bo da sua dung GPIO48 lam TFT DC nen khong dieu khien LED
 
 // ===== USB / UART - xlsx dong 52-55 (khong dung lam GPIO) =====
 // UART0 TX=43, RX=44; USB OTG D-=19, D+=20.

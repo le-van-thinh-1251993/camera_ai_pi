@@ -6,7 +6,8 @@ os.chdir(root)
 sys.path.insert(0, str(root))
 from dotenv import load_dotenv
 
-load_dotenv(root / ".env", override=True)
+# Bien moi truong dat san (run_local_lan.ps1, systemd) thang .env; .env chi dien phan con thieu.
+load_dotenv(root / ".env", override=False)
 import uvicorn
 
 if __name__ == "__main__":

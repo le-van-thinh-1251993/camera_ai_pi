@@ -21,12 +21,22 @@ static constexpr int TFT_DC   = 10;   // DC / RS     (trung camera Y5)
 static constexpr int TFT_MOSI = 11;   // SDI (MOSI)  (trung camera Y2)
 static constexpr int TFT_SCLK = 12;   // SCK         (trung camera Y6)
 #else
-// BO DA SUA: cat chan 8-12 cua socket TFT khoi ESP32, noi day lai:
-//   SCK -> GPIO1, MOSI -> GPIO2, DC -> GPIO46, CS -> GND, RESET -> EN.
+// BO DA SUA: cat chan 3-7 cua socket TFT khoi GPIO 8-12, noi day lai:
+//   SCK -> GPIO1, MOSI -> GPIO2, DC -> GPIO48, CS -> GND, RESET -> EN.
 // Camera va TFT chay dong thoi, khong con chia thoi gian.
-static constexpr int TFT_CS   = -1;   // CS noi GND (man la thiet bi duy nhat tren bus)
-static constexpr int TFT_RST  = -1;   // RESET noi EN: reset cung luc voi ESP32
-static constexpr int TFT_DC   = 46;   // DC / RS  (GPIO46 la chan strapping, chi doc luc boot)
+// CS noi GND + RESET noi EN => sau khi nap code (ESP32-S3 reset noi bo, EN khong doi) hoac
+// co xung nhieu tren SCK luc khoi dong, man bi lech bit -> man TRANG cho toi khi rut dien.
+// Sua dut diem: noi RESET (socket chan 4) sang GPIO40 va/hoac CS (chan 3) sang GPIO39
+// (2 chan mic INMP441 - firmware chua dung mic), roi doi -1 thanh so chan duoi day.
+#ifndef TFT_CS_PIN
+#define TFT_CS_PIN  -1   // -1 = CS noi GND.   39 = CS noi GPIO39 (khuyen nghi)
+#endif
+#ifndef TFT_RST_PIN
+#define TFT_RST_PIN -1   // -1 = RESET noi EN. 40 = RESET noi GPIO40 (khuyen nghi)
+#endif
+static constexpr int TFT_CS   = TFT_CS_PIN;
+static constexpr int TFT_RST  = TFT_RST_PIN;
+static constexpr int TFT_DC   = 48;   // DC / RS  (GPIO48; board khong co GPIO46)
 static constexpr int TFT_MOSI = 2;    // SDI (MOSI) - chung duong voi LED do tren bo
 static constexpr int TFT_SCLK = 1;    // SCK
 #endif
@@ -44,4 +54,6 @@ static constexpr int BTN_MANUAL      = -1;  // Mach khong co nut thu 5; dung len
 static constexpr bool TFT_BL_ACTIVE_HIGH = true;
 static constexpr bool TFT_INVERT = false;
 static constexpr bool TFT_RGB_ORDER = false;
-static constexpr int TFT_SPI_HZ = 27000000;  // ILI9488 supports up to ~40 MHz; 27 MHz is safe
+// Day han tay + MOSI chung LED do nen 27 MHz khong on dinh (man trang). 10 MHz chay duoc.
+// Thu tang dan 16 -> 20 -> 27 MHz de bot giat; lui ve muc truoc neu man nhieu/trang.
+static constexpr int TFT_SPI_HZ = 10000000;  // 20 MHz -> man trang tren bo da sua (TftPinTest: 10 MHz OK)

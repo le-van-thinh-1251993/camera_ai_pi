@@ -1,4 +1,4 @@
-import { el, requestId } from './api.js?v=dash-a-2';
+import { el, requestId } from './api.js?v=dash-a-5';
 export class DeviceController {
   constructor(api, ui) {
     this.api = api;
@@ -11,6 +11,9 @@ export class DeviceController {
     this.liveOn = false;
     this.liveChecking = false;
     this.liveTimer = null;
+    // Che do vua bam tren web, giu nut cho toi khi ESP32 xac nhan (khong nhay qua lai).
+    this.pendingMode = null;
+    this.fastUntil = 0;
   }
   path() {
     const id = el('device-id').value.trim();
@@ -66,6 +69,9 @@ export class DeviceController {
     this.liveOn = false;
   }
   async command(action) {
+    if (action === 'auto' || action === 'manual')
+      this.pendingMode = { mode: action, until: Date.now() + 8000 };
+    this.fastUntil = Date.now() + 8000; // hoi trang thai nhanh trong luc cho ESP32 lam theo
     try {
       el('device-error').textContent = '';
       const state = await this.api.post(this.path() + '/command', {
@@ -81,11 +87,15 @@ export class DeviceController {
   }
   render(state) {
     this.state = state;
+    const pending = this.pendingMode;
+    if (pending && (state.mode === pending.mode || Date.now() > pending.until))
+      this.pendingMode = null;
+    const mode = this.pendingMode ? this.pendingMode.mode : state.mode;
     el('device-status').textContent =
-      `${state.online ? '● Đã kết nối' : '○ Chưa nhận trạng thái'} · ${state.mode.toUpperCase()} · ${state.running ? 'Camera đang chạy' : state.view === 'result' ? 'Đã có kết quả' : 'Camera đang dừng'}${state.control_pending ? ' · Đang chờ nhận lệnh' : ''}`;
-    for (const mode of ['auto', 'manual'])
-      el('mode-' + mode).setAttribute('aria-pressed', String(state.mode === mode));
-    el('device-capture').disabled = state.mode !== 'manual' || !state.can_capture;
+      `${state.online ? '● Đã kết nối' : '○ Chưa nhận trạng thái'} · ${mode.toUpperCase()} · ${state.running ? 'Camera đang chạy' : state.view === 'result' ? 'Đã có kết quả' : 'Camera đang dừng'}${state.control_pending ? ' · Đang chờ nhận lệnh' : ''}`;
+    for (const m of ['auto', 'manual'])
+      el('mode-' + m).setAttribute('aria-pressed', String(mode === m));
+    el('device-capture').disabled = !state.online || !state.can_capture; // chup ngay ca AUTO lan MANUAL
     el('device-replay').disabled = !state.result;
     el('hold-progress').value = state.hold_seconds;
     el('hold-status').textContent =
@@ -123,7 +133,10 @@ export class DeviceController {
     } finally {
       this.polling = false;
       if (this.active)
-        this.timer = setTimeout(() => this.poll(), this.state?.running ? 1500 : 5000);
+        this.timer = setTimeout(
+          () => this.poll(),
+          Date.now() < this.fastUntil ? 400 : this.state?.running ? 1500 : 5000,
+        );
     }
   }
 }

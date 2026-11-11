@@ -1,11 +1,11 @@
-import { Api, el } from './js/api.js?v=dash-a-2';
-import { CloudJobs } from './js/cloud.js?v=dash-a-2';
-import { AudioPlayer } from './js/audio.js?v=dash-a-2';
-import { CameraController } from './js/camera.js?v=dash-a-2';
-import { UploadController } from './js/upload.js?v=dash-a-2';
-import { DeviceController } from './js/device.js?v=dash-a-2';
-import { watchEvents } from './js/events.js?v=dash-a-2';
-import { StatsView } from './js/stats.js?v=dash-a-2';
+import { Api, el } from './js/api.js?v=dash-a-5';
+import { CloudJobs } from './js/cloud.js?v=dash-a-5';
+import { AudioPlayer } from './js/audio.js?v=dash-a-5';
+import { CameraController } from './js/camera.js?v=dash-a-5';
+import { UploadController } from './js/upload.js?v=dash-a-5';
+import { DeviceController } from './js/device.js?v=dash-a-5';
+import { watchEvents } from './js/events.js?v=dash-a-5';
+import { StatsView } from './js/stats.js?v=dash-a-5';
 
 const api = new Api();
 let current = null,
@@ -367,7 +367,9 @@ el('device-id').onchange = () => {
 };
 el('resume-round').onclick = () =>
   el('camera-source').value === 'cloud' ? device.command('start') : camera.start();
-el('speak').onclick = () => audio.play(current);
+// Nguon ESP32: doc tren loa ESP32 (nhu bam nut tren bo); nguon khac: doc tren may nay.
+el('speak').onclick = () =>
+  currentSource() === 'esp32' ? device.command('replay') : audio.play(current);
 el('greeting').onclick = async () => {
   try {
     await audio.play(await api.json('/api/greeting'));

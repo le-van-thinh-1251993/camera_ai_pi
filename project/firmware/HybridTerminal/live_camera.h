@@ -36,6 +36,7 @@
 #include <soc/spi_periph.h>
 #include <freertos/semphr.h>
 #include "config.h"
+#include <Preferences.h>
 
 #if !ENABLE_CAMERA || !TFT_KIND
 #error "live_camera.h can ENABLE_CAMERA=1 va TFT_KIND!=0"
@@ -64,6 +65,10 @@ static bool livePadGating = false;  // true = tat/bat chan cam bien qua SCCB
 static uint8_t livePadOn1 = 0xFF, livePadOn2 = 0xFF;
 static LiveRestoreMode liveRestoreMode = RESTORE_FAST;
 static LiveStats liveStats;
+// Kich thuoc live hien tai (doi duoc qua /cam?size=...). Nho hon = TFT ve nhanh hon, bot giat.
+static framesize_t liveFrameSize = LIVE_FRAME_SIZE;
+// Giu camera khi chup anh VGA / doi kich thuoc (task lay khung tam dung).
+static SemaphoreHandle_t liveCamLock = nullptr;
 
 // Bo dem ve (chi loop dung) va bo dem stream (co mutex, HTTP doc).
 static uint8_t* liveDrawBuf = nullptr;
@@ -94,6 +99,29 @@ static camera_config_t liveCameraConfig() {
   c.grab_mode = CAMERA_GRAB_LATEST;
   return c;
 }
+
+// Anh live sang + net: gain toi da CAM_GAINCEILING, bu phoi sang, tang
+// sac net, giam nhieu, sua diem anh loi, bu sang ong kinh. Ham nao driver khong co thi bo qua.
+#define CAM_SET(fn, v) do { if (s->fn) s->fn(s, v); } while (0)
+static void liveTuneSensor(sensor_t* s) {
+  CAM_SET(set_vflip, CAM_VFLIP);
+  CAM_SET(set_hmirror, CAM_HMIRROR);
+  CAM_SET(set_quality, LIVE_JPEG_QUALITY);
+  CAM_SET(set_gain_ctrl, 1);
+  CAM_SET(set_exposure_ctrl, 1);
+  CAM_SET(set_aec2, 0);            // tat che do dem: tranh tut fps (giat) khi toi
+  CAM_SET(set_gainceiling, CAM_GAINCEILING);
+  CAM_SET(set_ae_level, CAM_AE_LEVEL);
+  CAM_SET(set_brightness, CAM_BRIGHTNESS);
+  CAM_SET(set_sharpness, CAM_SHARPNESS);
+  CAM_SET(set_denoise, CAM_DENOISE);
+  CAM_SET(set_bpc, 1);
+  CAM_SET(set_wpc, 1);
+  CAM_SET(set_lenc, 1);
+  CAM_SET(set_whitebal, 1);
+  CAM_SET(set_awb_gain, 1);
+}
+#undef CAM_SET
 
 #if SHARED_CAM_TFT_BUS
 // Chan dung chung: {GPIO, bit du lieu camera}
@@ -193,6 +221,8 @@ static void tftRestore() {
 // ---------- Stream MJPEG cho dashboard ----------
 
 static httpd_handle_t liveStreamServer = nullptr, liveCtrlServer = nullptr;
+// wifi_setup.h gan trang cau hinh WiFi (/, /api/wifi...) vao cung server cong 80.
+static void (*liveRegisterExtra)(httpd_handle_t) = nullptr;
 
 static esp_err_t liveStreamHandler(httpd_req_t* req) {
   static constexpr char BOUNDARY[] = "\r\n--frame\r\n";
@@ -253,18 +283,92 @@ static esp_err_t liveStatusHandler(httpd_req_t* req) {
   return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
 }
 
+// GET /cam?ae=2&bright=1&gain=4&sharp=2&denoise=3&quality=8&contrast=1&sat=0
+// Chinh cam bien ngay khi dang chay (khong can nap lai), tra ve gia tri hien tai.
+// gain = muc tran gain 0..6 (2x,4x,8x,16x,32x,64x,128x). Mat sau khi khoi dong lai:
+// gia tri tot thi ghi vao config.h.
+// /cam?spi=<MHz>: luu toc do SPI cua man, loop() khoi dong lai ESP32 khi SPI ranh.
+static volatile bool liveRestartReq = false;
+
+static uint32_t tftSpiMhz() {
+  Preferences p;
+  p.begin("tft", true);
+  uint32_t mhz = p.getUInt("spi_mhz", 0);
+  p.end();
+  return mhz ? mhz : TFT_SPI_HZ / 1000000;
+}
+
+static esp_err_t liveCamHandler(httpd_req_t* req) {
+  sensor_t* s = esp_camera_sensor_get();
+  if (!s) { httpd_resp_set_status(req, "503 Service Unavailable"); return httpd_resp_send(req, "no camera", HTTPD_RESP_USE_STRLEN); }
+  char q[160] = "", v[12];
+  httpd_req_get_url_query_str(req, q, sizeof q);
+  auto val = [&](const char* k, int lo, int hi, int& out) {
+    if (httpd_query_key_value(q, k, v, sizeof v) != ESP_OK) return false;
+    out = constrain(atoi(v), lo, hi);
+    return true;
+  };
+  int x;
+  if (val("ae", -2, 2, x) && s->set_ae_level) s->set_ae_level(s, x);
+  if (val("bright", -2, 2, x) && s->set_brightness) s->set_brightness(s, x);
+  if (val("contrast", -2, 2, x) && s->set_contrast) s->set_contrast(s, x);
+  if (val("sat", -2, 2, x) && s->set_saturation) s->set_saturation(s, x);
+  if (val("sharp", -2, 2, x) && s->set_sharpness) s->set_sharpness(s, x);
+  if (val("denoise", 0, 8, x) && s->set_denoise) s->set_denoise(s, x);
+  if (val("quality", 4, 40, x) && s->set_quality) s->set_quality(s, x);
+  if (val("gain", 0, 6, x) && s->set_gainceiling) s->set_gainceiling(s, (gainceiling_t)x);
+  if (val("aec2", 0, 1, x) && s->set_aec2) s->set_aec2(s, x);
+  if (val("spi", 0, 40, x)) {  // 0 = ve mac dinh TFT_SPI_HZ
+    Preferences p;
+    p.begin("tft", false);
+    if (x) p.putUInt("spi_mhz", (uint32_t)max(x, 4)); else p.remove("spi_mhz");
+    p.end();
+    liveRestartReq = true;
+  }
+  if (httpd_query_key_value(q, "size", v, sizeof v) == ESP_OK) {
+    framesize_t f = !strcmp(v, "qvga") ? FRAMESIZE_QVGA : !strcmp(v, "hqvga") ? FRAMESIZE_HQVGA
+                  : !strcmp(v, "qcif") ? FRAMESIZE_QCIF : liveFrameSize;
+    if (f != liveFrameSize) {
+      bool locked = liveCamLock && xSemaphoreTake(liveCamLock, pdMS_TO_TICKS(2000)) == pdTRUE;
+      liveFrameSize = f;
+      s->set_framesize(s, f);
+      if (locked) xSemaphoreGive(liveCamLock);
+    }
+  }
+  char body[300];
+  snprintf(body, sizeof body,
+           "{\"ae\":%d,\"bright\":%d,\"contrast\":%d,\"sat\":%d,\"sharp\":%d,\"denoise\":%d,"
+           "\"quality\":%d,\"gain\":%d,\"aec2\":%d,\"size\":\"%s\",\"fps\":%.1f,"
+           "\"spi_mhz\":%lu,\"restarting\":%s}",
+           s->status.ae_level, s->status.brightness, s->status.contrast, s->status.saturation,
+           s->status.sharpness, s->status.denoise, s->status.quality, (int)s->status.gainceiling,
+           s->status.aec2,
+           liveFrameSize == FRAMESIZE_QVGA ? "qvga" : liveFrameSize == FRAMESIZE_HQVGA ? "hqvga" : "qcif",
+           liveStats.fps, (unsigned long)tftSpiMhz(), liveRestartReq ? "true" : "false");
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+}
+
 static void liveStartHttp() {
   if (liveCtrlServer) return;
   httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
   cfg.server_port = LIVE_HTTP_PORT; cfg.ctrl_port = 32768;
+  cfg.max_uri_handlers = 12;
+  cfg.lru_purge_enable = true;  // dien thoai mo nhieu ket noi khi do captive portal
   if (httpd_start(&liveCtrlServer, &cfg) == ESP_OK) {
     httpd_uri_t cap = {"/capture", HTTP_GET, liveCaptureHandler, nullptr};
     httpd_uri_t st = {"/status", HTTP_GET, liveStatusHandler, nullptr};
     httpd_register_uri_handler(liveCtrlServer, &cap);
     httpd_register_uri_handler(liveCtrlServer, &st);
+    httpd_uri_t cam = {"/cam", HTTP_GET, liveCamHandler, nullptr};
+    httpd_register_uri_handler(liveCtrlServer, &cam);
+    if (liveRegisterExtra) liveRegisterExtra(liveCtrlServer);
   }
   // Stream chan luong rieng (giong CameraWebServer) de /status van tra loi.
   cfg.server_port = LIVE_HTTP_PORT + 1; cfg.ctrl_port = 32769;
+  cfg.max_uri_handlers = 4;
+  cfg.lru_purge_enable = false;
   if (httpd_start(&liveStreamServer, &cfg) == ESP_OK) {
     httpd_uri_t s = {"/stream", HTTP_GET, liveStreamHandler, nullptr};
     httpd_register_uri_handler(liveStreamServer, &s);
@@ -273,26 +377,20 @@ static void liveStartHttp() {
                 WiFi.localIP().toString().c_str(), LIVE_HTTP_PORT + 1, DEVICE_ID, LIVE_HTTP_PORT + 1);
 }
 
-static void liveWifiBegin() {
-  if (!strlen(WIFI_SSID)) { Serial.println("[WIFI] Chua co WIFI_SSID trong secrets.h - bo qua stream."); return; }
-  WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);  // giam tre stream
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.printf("[WIFI] Dang ket noi %s...\n", WIFI_SSID);
-}
-
-// Goi trong loop: khi co WiFi thi mo mDNS + HTTP mot lan.
-static void liveWifiTick() {
-  static bool started = false;
-  if (started || WiFi.status() != WL_CONNECTED) return;
-  started = true;
-  MDNS.begin(DEVICE_ID);
-  MDNS.addService("http", "tcp", LIVE_HTTP_PORT);
-  liveStartHttp();
-}
+// Ket noi WiFi, mDNS va hotspot cau hinh: xem wifi_setup.h.
 
 // Khung moi trong liveDrawBuf: chep sang stream va cap nhat thong ke.
+static void liveCountFrame(size_t len) {
+  uint32_t now = millis();
+  if (liveStats.lastFrameMs) {
+    float inst = 1000.0f / float(std::max<uint32_t>(1, now - liveStats.lastFrameMs));
+    liveStats.fps = liveStats.fps ? liveStats.fps * 0.8f + inst * 0.2f : inst;
+  }
+  liveStats.lastFrameMs = now;
+  liveStats.frames++;
+  liveStats.lastBytes = len;
+}
+
 static void livePublishFrame(bool ok) {
   if (!ok) { liveStats.dropped++; return; }
   if (xSemaphoreTake(liveStreamLock, pdMS_TO_TICKS(20)) == pdTRUE) {
@@ -333,6 +431,36 @@ static bool isFreshJpeg(camera_fb_t* fb, int64_t since, bool hiRes) {
 
 #if !SHARED_CAM_TFT_BUS
 // ---------- Bo da sua: camera chay lien tuc ----------
+// Task rieng lay khung camera lien tuc va dua thang len stream web: web chay theo toc do
+// camera, khong bi keo cham boi viec ve TFT (~190 ms/khung o SPI 10 MHz).
+// TFT (loop) chi lay khung moi nhat tu stream moi khi ve xong khung truoc.
+
+static volatile uint32_t liveDrawnSeq = 0;  // khung stream TFT da ve
+
+static void liveCamTask(void*) {
+  for (;;) {
+    if (xSemaphoreTake(liveCamLock, pdMS_TO_TICKS(100)) != pdTRUE) continue;  // dang chup VGA
+    camera_fb_t* fb = esp_camera_fb_get();
+    bool ok = false;
+    size_t len = 0;
+    if (fb) {
+      len = fb->len;
+      if (len > 4 && len <= LIVE_MAX_JPEG && fb->width <= 320 && fb->buf[0] == 0xFF && fb->buf[1] == 0xD8 &&
+          xSemaphoreTake(liveStreamLock, pdMS_TO_TICKS(20)) == pdTRUE) {
+        memcpy(liveStreamBuf, fb->buf, len);
+        liveStreamLen = len;
+        liveStreamSeq = liveStreamSeq + 1;
+        xSemaphoreGive(liveStreamLock);
+        ok = true;
+      }
+      esp_camera_fb_return(fb);
+    }
+    xSemaphoreGive(liveCamLock);
+    if (ok) liveCountFrame(len);
+    else liveStats.dropped++;
+    vTaskDelay(1);
+  }
+}
 
 static bool liveCameraBegin() {
   if (!liveAllocBuffers()) return false;
@@ -343,27 +471,39 @@ static bool liveCameraBegin() {
     return false;
   }
   sensor_t* s = esp_camera_sensor_get();
-  s->set_vflip(s, CAM_VFLIP);
-  s->set_hmirror(s, CAM_HMIRROR);
-  s->set_framesize(s, LIVE_FRAME_SIZE);
+  liveTuneSensor(s);
+  s->set_framesize(s, liveFrameSize);
   Serial.printf("[CAM] Sensor PID=0x%04x - TFT bus rieng, chay dong thoi\n", s->id.PID);
-  liveReady = true;
-  return true;
+  liveCamLock = xSemaphoreCreateMutex();
+  liveReady = liveCamLock != nullptr;
+  if (liveReady) xTaskCreatePinnedToCore(liveCamTask, "camgrab", 4096, nullptr, 2, nullptr, 0);
+  return liveReady;
 }
 
-// hiRes=false: khung live QVGA moi nhat. hiRes=true: chup VGA 640x480 de nhan dien.
+// hiRes=false: lay khung live moi nhat (task da chup) de ve TFT - tra false neu chua co khung moi.
+// hiRes=true: tam dung task, chup VGA 640x480 de nhan dien.
 static bool liveGrabFrame(bool hiRes = false) {
   if (!liveReady) return false;
+  if (!hiRes) {
+    if (liveStreamSeq == liveDrawnSeq) return false;
+    if (xSemaphoreTake(liveStreamLock, pdMS_TO_TICKS(20)) != pdTRUE) return false;
+    memcpy(liveDrawBuf, liveStreamBuf, liveStreamLen);
+    liveDrawLen = liveStreamLen;
+    liveDrawnSeq = liveStreamSeq;
+    xSemaphoreGive(liveStreamLock);
+    liveDrawHiRes = false;
+    return liveDrawLen > 0;
+  }
   uint32_t t0 = millis();
+  if (xSemaphoreTake(liveCamLock, pdMS_TO_TICKS(2000)) != pdTRUE) return false;
   sensor_t* s = esp_camera_sensor_get();
-  if (hiRes) s->set_framesize(s, CAPTURE_FRAME_SIZE);
-  int64_t since = hiRes ? esp_timer_get_time() : 0;
-  uint32_t budget = hiRes ? 1500 : 300;
+  s->set_framesize(s, CAPTURE_FRAME_SIZE);
+  int64_t since = esp_timer_get_time();
   bool ok = false;
-  for (int tries = 0; tries < 8 && millis() - t0 < budget; tries++) {
+  for (int tries = 0; tries < 8 && millis() - t0 < 1500; tries++) {
     camera_fb_t* fb = esp_camera_fb_get();
     if (!fb) continue;
-    if (isFreshJpeg(fb, since, hiRes)) {
+    if (isFreshJpeg(fb, since, true)) {
       memcpy(liveDrawBuf, fb->buf, fb->len);
       liveDrawLen = fb->len;
       ok = true;
@@ -371,10 +511,14 @@ static bool liveGrabFrame(bool hiRes = false) {
     esp_camera_fb_return(fb);
     if (ok) break;
   }
-  if (hiRes) s->set_framesize(s, LIVE_FRAME_SIZE);
-  if (ok) liveDrawHiRes = hiRes;
+  s->set_framesize(s, liveFrameSize);
+  xSemaphoreGive(liveCamLock);
   liveStats.camMs = millis() - t0;
-  livePublishFrame(ok);
+  if (ok) {
+    liveDrawHiRes = true;
+    livePublishFrame(true);          // web cung thay anh vua chup
+    liveDrawnSeq = liveStreamSeq;    // khong ve lai anh VGA nhu khung live
+  }
   return ok;
 }
 
@@ -394,9 +538,8 @@ static bool liveCameraBegin() {
     return false;
   }
   sensor_t* s = esp_camera_sensor_get();
-  s->set_vflip(s, CAM_VFLIP);
-  s->set_hmirror(s, CAM_HMIRROR);
-  s->set_framesize(s, LIVE_FRAME_SIZE);
+  liveTuneSensor(s);
+  s->set_framesize(s, liveFrameSize);
   Serial.printf("[CAM] Sensor PID=0x%04x\n", s->id.PID);
 
   int r1 = s->get_reg(s, OV_PAD_OEN1, 0xFF);
@@ -458,7 +601,7 @@ static bool liveGrabFrame(bool hiRes = false) {
         memcpy(liveDrawBuf, fb->buf, fb->len); liveDrawLen = fb->len; ok = true;
       }
       if (fb) { esp_camera_fb_return(fb); fb = nullptr; }
-      s->set_framesize(s, LIVE_FRAME_SIZE);
+      s->set_framesize(s, liveFrameSize);
     }
     sensorPads(false);
   } else {
@@ -466,8 +609,8 @@ static bool liveGrabFrame(bool hiRes = false) {
     c.fb_count = 1;
     if (esp_camera_init(&c) == ESP_OK) {
       sensor_t* s = esp_camera_sensor_get();
-      s->set_vflip(s, CAM_VFLIP); s->set_hmirror(s, CAM_HMIRROR);
-      if (!hiRes) s->set_framesize(s, LIVE_FRAME_SIZE);
+      liveTuneSensor(s);
+      if (!hiRes) s->set_framesize(s, liveFrameSize);
       esp_camera_fb_return(esp_camera_fb_get());  // khung dau thuong toi/loi
       fb = esp_camera_fb_get();
     }
@@ -494,11 +637,31 @@ static bool liveGrabFrame(bool hiRes = false) {
 #endif  // SHARED_CAM_TFT_BUS
 
 // Ve khung moi nhat vao vung (x, y, w, h). Bus phai dang thuoc ve TFT.
+// Doc kich thuoc anh tu marker SOF cua JPEG.
+static bool jpegSize(const uint8_t* d, size_t n, int& w, int& h) {
+  for (size_t i = 2; i + 9 < n;) {
+    if (d[i] != 0xFF) return false;
+    uint8_t m = d[i + 1];
+    size_t len = (d[i + 2] << 8) | d[i + 3];
+    if (m >= 0xC0 && m <= 0xC3) { h = (d[i + 5] << 8) | d[i + 6]; w = (d[i + 7] << 8) | d[i + 8]; return true; }
+    i += 2 + len;
+  }
+  return false;
+}
+
 static void liveDrawFrame(int x, int y, int w, int h) {
   if (!liveDrawLen) return;
   uint32_t t0 = millis();
-  // Anh VGA thu nho 1/2 cho vua khung 320x240.
-  lcd.drawJpg(liveDrawBuf, liveDrawLen, x, y, w, h, 0, 0, liveDrawHiRes ? 0.5f : 1.0f);
+  float scale = liveDrawHiRes ? 0.5f : 1.0f;  // anh VGA thu nho 1/2 cho vua khung 320x240
+  // Anh live nho hon khung (vd 240x176): ve giua khung, to den phan vien khi doi kich thuoc.
+  static int lastW = 0, lastH = 0;
+  int iw = w, ih = h;
+  if (jpegSize(liveDrawBuf, liveDrawLen, iw, ih)) { iw = int(iw * scale); ih = int(ih * scale); }
+  if (iw > w) iw = w;
+  if (ih > h) ih = h;
+  if (iw != lastW || ih != lastH) { lcd.fillRect(x, y, w, h, 0); lastW = iw; lastH = ih; }
+  x += (w - iw) / 2; y += (h - ih) / 2;
+  lcd.drawJpg(liveDrawBuf, liveDrawLen, x, y, iw, ih, 0, 0, scale);
   lcd.waitDisplay();
   liveStats.tftMs = millis() - t0;
 }

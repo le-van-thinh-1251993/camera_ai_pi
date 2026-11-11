@@ -6,7 +6,9 @@
 #include "config.h"
 #include "hardware.h"
 #include "live_camera.h"
+#include "wifi_setup.h"
 #include "lan_client.h"
+#include "device_sync.h"
 #include "ui_text.h"
 #include "welcome_audio.h"
 
@@ -25,7 +27,9 @@
 // UP1     GPIO14 = giam am luong
 //
 // Stream cho dashboard: http://<ip>:81/stream
-// Serial: b s + -  (gia lap 4 nut)   i = thong ke live
+// Cau hinh WiFi: http://<ip>/ hoac hotspot AI-Camera-XXXX -> http://192.168.4.1/
+//   Giu BACK 3 s o man chao (hoac giu BACK khi cap dien) de mo hotspot doi WiFi.
+// Serial: b s + -  (gia lap 4 nut)   i = thong ke live   w = mo hotspot WiFi
 // Doi file "Xin chao": python scripts/make_tft_assets.py --wav <file.wav>
 // =====================================================
 
@@ -54,6 +58,9 @@ static constexpr uint16_t C_WARN = rgb(0xffc24b);
 static constexpr uint16_t C_OK = rgb(0x4ade80);
 static constexpr uint16_t C_RED = rgb(0xff5d5d);
 static constexpr uint16_t C_BADGE = rgb(0x0b0f14);
+static constexpr uint16_t C_WARN_BG = rgb(0x3a2a07), C_WARN_TXT = rgb(0xe9d7ae);
+static constexpr uint16_t C_OK_BG = rgb(0x0f3326), C_OK_TXT = rgb(0xbfe9cf);
+static constexpr uint16_t C_WHITE = rgb(0xffffff);
 
 // ===== BO CUC 480x320 =====
 static constexpr int CAM_X = 8, CAM_Y = 8, CAM_W = 320, CAM_H = 240;
@@ -65,8 +72,13 @@ static constexpr int FOOT_Y = 258, FOOT_H = 62;
 static constexpr int WELCOME_FOOT_H = 52;
 
 // ===== TRANG THAI =====
-enum Screen { SCR_WELCOME, SCR_LIVE, SCR_BUSY, SCR_RESULT, SCR_ERROR };
+enum Screen { SCR_WELCOME, SCR_LIVE, SCR_BUSY, SCR_RESULT, SCR_ERROR, SCR_WIFI };
 static Screen screen = SCR_WELCOME;
+static WifiView wifiView = WV_LOST;  // enum o wifi_setup.h (tranh loi prototype cua Arduino)
+static Screen screenBeforeWifi = SCR_WELCOME;
+static uint32_t wifiViewAt = 0;
+static constexpr uint32_t BACK_HOLD_MS = 3000;     // giu BACK de mo hotspot doi WiFi
+static constexpr uint32_t WIFI_BACK_SHOW_MS = 8000; // man "Da ket noi lai"
 static bool autoMode = true;
 static bool cameraOK = false;
 static uint32_t stageAt = 0;     // luc vao trang thai hien tai
@@ -119,11 +131,13 @@ static void keyChip(int x, int cy, const char* key, const String& label, bool st
 static String volumeLabel() { return "Âm lượng " + String(volumePercent) + "%"; }
 
 static void drawFooter() {
+  if (screen == SCR_WIFI) return;  // man WiFi co footer rieng
   if (screen == SCR_WELCOME) {
     int y = 320 - WELCOME_FOOT_H;
     lcd.fillRect(0, y, 480, WELCOME_FOOT_H, C_PANEL);
     lcd.drawFastHLine(0, y, 480, C_LINE);
     keyChip(18, y + 26, "SELECT", "Bắt đầu", true);
+    keyChip(160, y + 26, "BACK", "Giữ 3 s: đổi WiFi", false);
     text(F_15, volumeLabel(), 462, y + 31, C_MUTE, C_PANEL, textdatum_t::baseline_right);
     return;
   }
@@ -216,29 +230,65 @@ static void drawCountdown() {
 // CAC MAN HINH
 // =====================================================
 
-static void drawWelcome(bool playing) {
-  if (playing) {
+// Cat chuoi UTF-8 cho vua be rong, them "…".
+static String fitText(FontId f, String s, int maxW) {
+  if (textWidth(f, s) <= maxW) return s;
+  while (s.length() && textWidth(f, s + "…") > maxW) {
+    int i = s.length() - 1;
+    while (i > 0 && ((uint8_t)s[i] & 0xC0) == 0x80) i--;
+    s.remove(i);
+  }
+  return s + "…";
+}
+
+// The mang tren man chao: IP de mo trinh duyet xem / doi WiFi.
+static void drawNetCard() {
+  const int x = 24, y = 176, w = 432, h = 82, tx = x + 14, rx = x + 262;
+  lcd.fillRoundRect(x, y, w, h, 10, C_PANEL);
+  lcd.drawRoundRect(x, y, w, h, 10, C_LINE);
+  if (wifiState == WS_ONLINE && WiFi.status() == WL_CONNECTED) {
+    text(F_12B, "MỞ TRÌNH DUYỆT ĐỂ XEM VÀ ĐỔI WIFI", tx, y + 20, C_MUTE, C_PANEL);
+    text(F_28B, wifiIp, tx, y + 58, C_ACC, C_PANEL);
+    const int maxW = x + w - rx - 26;
+    lcd.fillCircle(rx + 4, y + 40, 4, C_OK);
+    text(F_13B, fitText(F_13B, "WiFi " + String(wifiSsid), maxW), rx + 14, y + 45, C_FG, C_PANEL);
+    // Trang thai may chu nhan dien (task theo doi cap nhat)
+    uint16_t sc = serverState == SV_OK ? C_OK : serverState == SV_MISSING ? C_WARN : C_MUTE;
+    String st = serverState == SV_OK      ? "Máy chủ " + IPAddress(serverIpRaw).toString()
+                : serverState == SV_MISSING ? String("Chưa thấy máy chủ")
+                                            : String("Đang tìm máy chủ…");
+    lcd.fillCircle(rx + 4, y + 64, 4, sc);
+    text(F_13B, fitText(F_13B, st, maxW), rx + 14, y + 69, sc == C_MUTE ? C_MUTE : sc, C_PANEL);
+  } else {
+    text(F_12B, "WIFI", tx, y + 20, C_MUTE, C_PANEL);
+    String s = wifiSsid[0] ? "Đang kết nối \"" + String(wifiSsid) + "\"…" : String("Đang kết nối WiFi…");
+    text(F_15B, fitText(F_15B, s, w - 28), tx, y + 48, C_WARN, C_PANEL);
+    text(F_13B, "Giữ BACK 3 giây để chọn WiFi khác.", tx, y + 70, C_MUTE, C_PANEL);
+  }
+}
+
+static void drawWelcome(bool full) {
+  if (full) {
     lcd.fillScreen(C_BG);
-    text(F_12B, "NHẬN DIỆN CỬ CHỈ TAY", 36, 52, C_ACC, C_BG);
-    text(F_56B, "Xin chào!", 34, 118, C_FG, C_BG);
-    wrapText(F_17, "Giơ tay trước camera, máy sẽ đếm số ngón và đọc kết quả.", 36, 162, 400,
-             24, 2, C_MUTE, C_BG);
+    text(F_12B, "NHẬN DIỆN CỬ CHỈ TAY", 36, 44, C_ACC, C_BG);
+    text(F_56B, "Xin chào!", 34, 106, C_FG, C_BG);
+    wrapText(F_17, "Giơ tay trước camera, máy sẽ đếm số ngón và đọc kết quả.", 36, 140, 410,
+             22, 2, C_MUTE, C_BG);
     drawFooter();
   }
-  lcd.fillRect(30, 200, 420, 32, C_BG);
-  if (playing) {
-    speakerIcon(36, 216, C_ACC);
-    text(F_15B, "Đang phát lời chào…", 62, 222, C_ACC, C_BG);
-  } else {
-    text(F_15B, "Nhấn SELECT để bắt đầu.", 36, 222, C_ACC, C_BG);
-  }
+  drawNetCard();
 }
 
 // Khung tinh cua man live (ve 1 lan khi vao live / doi che do).
 static void drawLiveChrome() {
   lcd.fillScreen(C_BG);
   camOutline(C_LINE);
-  if (autoMode) {
+  if (serverState != SV_OK) {
+    // Chi xem camera: chua gui anh duoc
+    drawResultCard("KẾT QUẢ", "—", C_MUTE, "Chưa có máy chủ", C_WARN);
+    drawMeaningCard(wifiState == WS_ONLINE ? "Chỉ xem camera. Nhấn SELECT để xem cách kết nối máy chủ."
+                                           : "Chỉ xem camera. Đang chờ WiFi.");
+  } else if (autoMode) {
     drawResultCard("KẾT QUẢ", "—", C_MUTE, "", C_WARN);
     drawMeaningCard(HINT_AUTO);
   } else {
@@ -272,6 +322,282 @@ static void showError(const String& message) {
 }
 
 static String nextRoundText() { return "Live tiếp sau " + String(AUTO_NEXT_ROUND_MS / 1000) + " s"; }
+
+// =====================================================
+// MAN WIFI: mat mang / hotspot cau hinh / da ket noi lai
+// =====================================================
+
+static void wifiTopBar(uint16_t dot, const String& title) {
+  lcd.fillRect(0, 0, 480, 30, C_BG);
+  lcd.drawFastHLine(0, 30, 480, C_LINE);
+  lcd.fillCircle(18, 15, 4, dot);
+  text(F_13B, fitText(F_13B, title, 340), 30, 20, C_FG, C_BG);
+  text(F_12B, DEVICE_ID, 466, 20, C_MUTE, C_BG, textdatum_t::baseline_right);
+}
+
+static void wifiFooter(const String& sel, const String& right) {
+  lcd.fillRect(0, 280, 480, 40, C_PANEL);
+  lcd.drawFastHLine(0, 280, 480, C_LINE);
+  keyChip(14, 300, "SELECT", sel, true);
+  text(F_13B, right, 466, 305, C_MUTE, C_PANEL, textdatum_t::baseline_right);
+}
+
+static void wifiCard(int x, int y, int w, int h) {
+  lcd.fillRoundRect(x, y, w, h, 10, C_PANEL);
+  lcd.drawRoundRect(x, y, w, h, 10, C_LINE);
+}
+
+// Chu bi gach ngang (IP cu khong con dung).
+static void struckText(FontId f, const String& s, int x, int baseline, uint16_t line) {
+  text(f, s, x, baseline, C_MUTE, C_PANEL);
+  lcd.fillRect(x, baseline - 6, textWidth(f, s), 2, line);
+}
+
+static String savedCountText() { return "Đã lưu " + String(wifiNetCount) + " mạng"; }
+
+static int lostLastSec = -1;
+
+static void drawLostCountdown() {
+  int32_t left = (int32_t)WIFI_LOST_TO_AP_MS - (int32_t)(millis() - wifiStateAt);
+  int sec = left > 0 ? (left + 999) / 1000 : 0;
+  if (sec == lostLastSec) return;
+  lostLastSec = sec;
+  const int x = 30, y = 106;
+  lcd.fillRect(x, y + 34, 182, 64, C_PANEL);
+  text(F_28B, String(sec) + " giây", x, y + 62, C_FG, C_PANEL);
+  text(F_13B, "nữa sẽ bật hotspot", x, y + 82, C_MUTE, C_PANEL);
+  int done = 182 * (WIFI_LOST_TO_AP_MS / 1000 - sec) / (WIFI_LOST_TO_AP_MS / 1000);
+  lcd.fillRoundRect(x, y + 92, 182, 6, 3, C_LINE);
+  if (done > 0) lcd.fillRoundRect(x, y + 92, done, 6, 3, C_WARN);
+}
+
+static void drawWifiLost() {
+  lcd.fillScreen(C_BG);
+  wifiTopBar(C_RED, "Mất kết nối");
+  lcd.fillRect(0, 31, 480, 62, C_WARN_BG);
+  lcd.fillRect(0, 93, 480, 2, C_WARN);
+  lcd.fillTriangle(35, 42, 17, 78, 53, 78, C_WARN);
+  lcd.fillRect(33, 54, 4, 13, C_WARN_BG);
+  lcd.fillRect(33, 70, 4, 4, C_WARN_BG);
+  text(F_28B, fitText(F_28B, "Mất WiFi \"" + String(wifiSsid) + "\"", 400), 66, 66, C_WARN, C_WARN_BG);
+  text(F_13B, "Nhận diện tạm dừng. Đang tự kết nối lại…", 66, 86, C_WARN_TXT, C_WARN_BG);
+
+  wifiCard(18, 106, 206, 166);
+  text(F_12B, "ĐANG THỬ LẠI", 30, 128, C_MUTE, C_PANEL);
+  text(F_12B, "IP CŨ", 30, 236, C_MUTE, C_PANEL);
+  struckText(F_15B, wifiOldIp[0] ? String(wifiOldIp) : String("—"), 30, 260, C_RED);
+
+  wifiCard(236, 106, 226, 166);
+  const int x = 248;
+  text(F_12B, "CẤU HÌNH LẠI NGAY", x, 128, C_MUTE, C_PANEL);
+  text(F_13B, "Nhấn SELECT để bật hotspot,", x, 152, C_FG, C_PANEL);
+  text(F_13B, "nối điện thoại vào WiFi", x, 172, C_FG, C_PANEL);
+  text(F_15B, apSsid, x, 196, C_FG, C_PANEL);
+  text(F_13B, "rồi mở", x, 218, C_MUTE, C_PANEL);
+  text(F_28B, "192.168.4.1", x, 254, C_ACC, C_PANEL);
+
+  wifiFooter("Bật hotspot ngay", savedCountText());
+  lostLastSec = -1;
+  drawLostCountdown();
+}
+
+static String portalLine, portalFoot;
+
+// Dong trang thai duoi man hotspot + footer: ve lai khi noi dung doi.
+static void drawPortalStatus() {
+  bool up = WiFi.status() == WL_CONNECTED;
+  int phones = WiFi.softAPgetStationNum();
+  String line;
+  uint16_t color = C_MUTE;
+  if (up) { line = "Hoặc trong mạng hiện tại: http://" + String(wifiIp) + "/"; color = C_ACC; }
+  else if (wifiAttempting) { line = "Đang thử kết nối \"" + String(wifiSsid) + "\"…"; color = C_WARN; }
+  else if (wifiFail[0]) { line = "\"" + String(wifiFail) + "\": " + String(wifiFailMsg); color = C_RED; }
+  else if (phones > 0) { line = "Điện thoại đã vào hotspot. Đang chờ chọn WiFi…"; color = C_OK; }
+  else line = "Đang chờ điện thoại kết nối hotspot…";
+  String sel = up ? "Thoát" : wifiNetCount ? "Thử lại WiFi đã lưu" : "Chờ cấu hình";
+  String foot = sel + "|" + String(phones);
+  if (line != portalLine) {
+    portalLine = line;
+    lcd.fillRect(0, 240, 480, 38, C_BG);
+    text(F_13B, fitText(F_13B, line, 452), 16, 264, color, C_BG);
+  }
+  if (foot != portalFoot) {
+    portalFoot = foot;
+    wifiFooter(sel, "Hotspot: " + String(phones) + " máy");
+  }
+}
+
+static void portalStep(int n, int y) {
+  lcd.fillCircle(208, y - 5, 11, C_ACC);
+  text(F_13B, String(n), 208, y, C_BG, C_ACC, textdatum_t::baseline_center);
+}
+
+static void drawWifiPortal() {
+  lcd.fillScreen(C_BG);
+  const char* title = portalReason == PR_LOST     ? "Mất WiFi · hotspot đang bật"
+                      : portalReason == PR_MANUAL ? "Đổi WiFi"
+                                                  : "Chưa có WiFi · cần cấu hình";
+  wifiTopBar(C_WARN, title);
+
+  // QR chuan "WIFI:" - camera dien thoai quet la vao hotspot.
+  lcd.fillRoundRect(16, 40, 160, 160, 8, C_WHITE);
+  String qr = "WIFI:T:nopass;S:" + String(apSsid) + ";;";
+  lcd.qrcode(qr.c_str(), 22, 46, 148, 3);
+  text(F_12B, "Quét để vào hotspot", 96, 220, C_MUTE, C_BG, textdatum_t::baseline_center);
+
+  const int x = 228, w = 236;
+  portalStep(1, 60);
+  text(F_13B, "Nối điện thoại vào WiFi", x, 60, C_FG, C_BG);
+  text(F_15B, apSsid, x, 82, C_FG, C_BG);
+  text(F_12B, "Không cần mật khẩu", x, 100, C_MUTE, C_BG);
+  portalStep(2, 128);
+  wrapText(F_13B, "Trang cấu hình tự mở. Nếu không, vào", x, 128, w, 18, 2, C_FG, C_BG);
+  text(F_28B, "192.168.4.1", x, 178, C_ACC, C_BG);
+  portalStep(3, 206);
+  wrapText(F_13B, "Chọn WiFi, nhập mật khẩu rồi bấm Lưu.", x, 206, w, 18, 2, C_FG, C_BG);
+
+  portalLine = portalFoot = "";
+  drawPortalStatus();
+}
+
+static void drawWifiBack() {
+  lcd.fillScreen(C_BG);
+  wifiTopBar(C_OK, "WiFi: " + String(wifiSsid));
+  bool hadOld = wifiOldIp[0] != 0, same = hadOld && !strcmp(wifiOldIp, wifiIp);
+  lcd.fillRect(0, 31, 480, 62, C_OK_BG);
+  lcd.fillRect(0, 93, 480, 2, C_OK);
+  lcd.drawWideLine(22, 62, 32, 72, 4, C_OK);
+  lcd.drawWideLine(32, 72, 50, 50, 4, C_OK);
+  text(F_28B, hadOld ? "Đã kết nối lại" : "Đã kết nối WiFi", 66, 66, C_OK, C_OK_BG);
+  text(F_13B, same ? "Địa chỉ không đổi."
+              : hadOld ? "Địa chỉ đã đổi. Dùng địa chỉ mới bên dưới."
+                       : "Mở địa chỉ bên dưới trên trình duyệt.",
+       66, 86, C_OK_TXT, C_OK_BG);
+
+  wifiCard(18, 106, 280, 166);
+  text(F_12B, hadOld && !same ? "ĐỊA CHỈ MỚI" : "ĐỊA CHỈ", 30, 128, C_MUTE, C_PANEL);
+  text(F_28B, wifiIp, 30, 168, C_ACC, C_PANEL);
+  text(F_15B, String(DEVICE_ID) + ".local", 30, 204, C_FG, C_PANEL);
+  text(F_12B, "Tên này không đổi khi đổi mạng.", 30, 226, C_MUTE, C_PANEL);
+
+  wifiCard(310, 106, 152, 166);
+  text(F_12B, "IP CŨ", 322, 128, C_MUTE, C_PANEL);
+  if (hadOld && !same) struckText(F_15B, wifiOldIp, 322, 154, C_RED);
+  else text(F_15B, "—", 322, 154, C_MUTE, C_PANEL);
+  text(F_12B, "HOTSPOT", 322, 196, C_MUTE, C_PANEL);
+  text(F_13B, apOn ? "Tắt sau ít giây" : "Đã tắt", 322, 220, C_MUTE, C_PANEL);
+
+  wifiFooter("Vào ngay", "Tự quay lại sau " + String(WIFI_BACK_SHOW_MS / 1000) + " s");
+}
+
+// ----- Khong thay may chu nhan dien (khac WiFi / server chua chay) -----
+static bool serverDismissed = false;  // nguoi dung chon "chi xem camera"
+static uint32_t noServerChecks = 0;
+
+static void drawNoServerStatus() {
+  if (serverChecks == noServerChecks) return;
+  noServerChecks = serverChecks;
+  lcd.fillRect(0, 256, 480, 23, C_BG);
+  String s = "Đã thử: " + String(serverTried[0] ? serverTried : "—") + " · tự thử lại mỗi 3 s";
+  text(F_12B, fitText(F_12B, s, 452), 16, 272, C_MUTE, C_BG);
+}
+
+static void drawWifiNoServer() {
+  lcd.fillScreen(C_BG);
+  wifiTopBar(C_WARN, "Chưa kết nối máy chủ nhận diện");
+  lcd.fillRect(0, 31, 480, 62, C_WARN_BG);
+  lcd.fillRect(0, 93, 480, 2, C_WARN);
+  lcd.fillTriangle(35, 42, 17, 78, 53, 78, C_WARN);
+  lcd.fillRect(33, 54, 4, 13, C_WARN_BG);
+  lcd.fillRect(33, 70, 4, 4, C_WARN_BG);
+  text(F_28B, "Không thấy máy chủ", 66, 66, C_WARN, C_WARN_BG);
+  text(F_13B, "Camera vẫn chạy, nhưng chưa gửi ảnh đi nhận diện được.", 66, 86, C_WARN_TXT, C_WARN_BG);
+
+  wifiCard(18, 106, 206, 146);
+  text(F_12B, "THIẾT BỊ ĐANG Ở", 30, 128, C_MUTE, C_PANEL);
+  text(F_12B, "WiFi", 30, 148, C_MUTE, C_PANEL);
+  text(F_15B, fitText(F_15B, wifiSsid, 182), 30, 168, C_FG, C_PANEL);
+  text(F_12B, "IP", 30, 194, C_MUTE, C_PANEL);
+  text(F_15B, wifiIp, 30, 214, C_ACC, C_PANEL);
+
+  wifiCard(236, 106, 226, 146);
+  const int x = 248, w = 204;
+  text(F_12B, "CÁCH SỬA", x, 128, C_MUTE, C_PANEL);
+  wrapText(F_13B, "1. Cho máy tính/Pi chạy server vào cùng WiFi \"" + String(wifiSsid) + "\".", x, 150,
+           w, 18, 3, C_FG, C_PANEL);
+  text(F_13B, "2. Hoặc nhập IP máy chủ tại", x, 210, C_FG, C_PANEL);
+  text(F_13B, fitText(F_13B, "http://" + String(wifiIp) + "/", w), x, 230, C_ACC, C_PANEL);
+
+  wifiFooter("Thử lại ngay", "BACK: chỉ xem camera");
+  noServerChecks = serverChecks + 1;  // ep ve dong trang thai
+  drawNoServerStatus();
+}
+
+static void enterWifi(WifiView v) {
+  if (screen != SCR_WIFI) screenBeforeWifi = screen;
+  screen = SCR_WIFI;
+  wifiView = v;
+  wifiViewAt = millis();
+  Serial.printf("[UI] Man WiFi %d\n", (int)v);
+  if (v == WV_LOST) drawWifiLost();
+  else if (v == WV_PORTAL) drawWifiPortal();
+  else if (v == WV_NOSERVER) drawWifiNoServer();
+  else drawWifiBack();
+}
+
+static void leaveWifi() {
+  if (screenBeforeWifi == SCR_WELCOME) {
+    screen = SCR_WELCOME;
+    drawWelcome(true);
+  } else {
+    startLive();
+  }
+}
+
+// Goi moi vong loop: chuyen man theo trang thai WiFi, cap nhat dem nguoc.
+static void wifiUiTick() {
+  if (wifiChanged && screen != SCR_BUSY) {
+    wifiChanged = false;
+    switch (wifiState) {
+      case WS_CONNECTING:
+        if (screen == SCR_WELCOME) drawNetCard();
+        break;
+      case WS_ONLINE:
+        lan.forgetHost();          // kiem tra may chu ngay tren mang moi
+        serverDismissed = false;   // mang moi: bao lai neu van khong thay may chu
+        if (screen == SCR_WIFI) {
+          if (wifiView != WV_BACK && wifiView != WV_NOSERVER) enterWifi(WV_BACK);
+        } else if (screen == SCR_WELCOME) drawNetCard();
+        break;
+      case WS_LOST:
+        if (screen != SCR_WIFI || wifiView != WV_LOST) enterWifi(WV_LOST);
+        break;
+      case WS_PORTAL:
+        if (screen != SCR_WIFI || wifiView != WV_PORTAL) enterWifi(WV_PORTAL);
+        break;
+    }
+  }
+  // May chu nhan dien: man cảnh bao khi khong thay, tu quay lai khi thay.
+  if (serverState == SV_OK) serverDismissed = false;
+  if (screen == SCR_WIFI && wifiView == WV_NOSERVER &&
+      (serverState == SV_OK || wifiState != WS_ONLINE)) {
+    if (serverState == SV_OK) { Serial.println("[LAN] Thay may chu -> ve giao dien chinh"); leaveWifi(); }
+  } else if (wifiState == WS_ONLINE && serverState == SV_MISSING && !serverDismissed &&
+             (screen == SCR_WELCOME || screen == SCR_LIVE || screen == SCR_ERROR)) {
+    enterWifi(WV_NOSERVER);
+  }
+  if (serverChanged && screen != SCR_BUSY && screen != SCR_RESULT) {
+    serverChanged = false;
+    if (screen == SCR_WELCOME) drawNetCard();
+    else if (screen == SCR_LIVE) startLive();  // ve lai the "chua co may chu" / bat lai dem nguoc
+  }
+
+  if (screen != SCR_WIFI) return;
+  if (wifiView == WV_LOST) drawLostCountdown();
+  else if (wifiView == WV_PORTAL) drawPortalStatus();
+  else if (wifiView == WV_NOSERVER) drawNoServerStatus();
+  else if (millis() - wifiViewAt >= WIFI_BACK_SHOW_MS) leaveWifi();
+}
 
 // =====================================================
 // AM THANH
@@ -331,13 +657,57 @@ static String newRequestId() {
   return String(out);
 }
 
+// ---------- Dong bo trang thai voi web (device_sync.h) ----------
+static String lastResultId;
+
+static void devPublish() {
+  devState.autoMode = autoMode;
+  devState.running = screen == SCR_LIVE || screen == SCR_BUSY;
+  devState.hasFrame = cameraOK;
+  devState.playing = speaking;
+  devState.view = screen == SCR_WELCOME ? 0 : screen == SCR_LIVE ? 1 : screen == SCR_BUSY ? 2
+                : screen == SCR_RESULT  ? 3 : screen == SCR_ERROR ? 4 : 5;
+  devState.hold = screen == SCR_LIVE && autoMode && serverState == SV_OK
+                      ? AUTO_HOLD_MS / 1000.0f - countdownLeft() : 0.0f;
+  devState.volume = volumePercent;
+}
+
+// Tai am thanh ket qua tu may chu va doc tren loa.
+static bool playResultAudio(const String& id) {
+  bool played = false;
+  uint8_t* wav = (uint8_t*)heap_caps_malloc(MAX_WAV_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  size_t wavLen = 0;
+  if (wav && lan.audio(DEVICE_ID, id, wav, MAX_WAV_BYTES, wavLen)) {
+    cancelAudio.store(false);
+    played = playWav(wav, wavLen, cancelAudio);
+  }
+  free(wav);
+  return played;
+}
+
+static void replayResult() {
+  if (!lastResultId.length()) { speakerBeep(); return; }
+  Serial.println("[LOA] Doc lai ket qua");
+  speaking = true;
+  devPublish();
+  playResultAudio(lastResultId);
+  speaking = false;
+  devPublish();
+}
+
 static void captureAndRecognize() {
   if (!cameraOK) { showError("Camera chưa sẵn sàng."); return; }
+  if (WiFi.status() != WL_CONNECTED) { showError("Chưa kết nối WiFi."); return; }
+  if (serverState != SV_OK) {  // khong gui anh mu: mo man huong dan, khong chan nut
+    enterWifi(WV_NOSERVER);
+    return;
+  }
   Serial.printf("[CHUP] %s\n", autoMode ? "auto" : "manual");
   if (!liveGrabFrame(true)) { showError("Chụp ảnh lỗi, thử lại nhé."); return; }
 
   // Giu anh vua chup tren khung (dashboard cung thay anh nay qua stream)
   screen = SCR_BUSY;
+  devPublish();
   liveDrawFrame(CAM_X, CAM_Y, CAM_W, CAM_H);
   camOutline(C_OK);
   drawBadge(true);
@@ -352,8 +722,13 @@ static void captureAndRecognize() {
   JsonDocument reply;
   uint32_t t0 = millis();
   if (!lan.recognize(DEVICE_ID, id, liveDrawBuf, liveDrawLen, autoMode, reply)) {
-    showError(lan.lastStatus == -10 ? String("Không tìm thấy Pi trong mạng LAN.")
-                                    : "Gửi ảnh lên Pi lỗi (mã " + String(lan.lastStatus) + ").");
+    int st = lan.lastStatus;
+    String cfg = " Đặt IP máy chủ tại http://" + String(wifiIp) + "/";
+    showError(st == -10             ? "Không tìm thấy máy chủ." + cfg
+              : st < 0              ? "Không kết nối được máy chủ cổng 8000." + cfg
+              : st == 401 || st == 403 ? String("Sai LAN_API_KEY (khác với máy chủ).")
+              : st == 503           ? String("Máy chủ chưa đặt LAN_API_KEY.")
+                                    : "Máy chủ báo lỗi (mã " + String(st) + ").");
     return;
   }
 
@@ -374,14 +749,10 @@ static void captureAndRecognize() {
   drawMeaningCard(resultMeaning);
   drawFooter();
 
-  bool played = false;
-  uint8_t* wav = (uint8_t*)heap_caps_malloc(MAX_WAV_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  size_t wavLen = 0;
-  if (wav && lan.audio(DEVICE_ID, id, wav, MAX_WAV_BYTES, wavLen)) {
-    cancelAudio.store(false);
-    played = playWav(wav, wavLen, cancelAudio);
-  }
-  free(wav);
+  lastResultId = id;
+  strlcpy(devState.resultId, id.c_str(), sizeof devState.resultId);
+  devPublish();
+  bool played = playResultAudio(id);
   speaking = false;
   drawResultCard("KẾT QUẢ", resultBig, resultKnown ? C_FG : C_WARN,
                  AUTO_NEXT_ROUND_MS ? nextRoundText() : String(""), C_MUTE);
@@ -401,7 +772,7 @@ static void liveTick() {
     liveDrawFrame(CAM_X, CAM_Y, CAM_W, CAM_H);
     drawBadge(false);
   }
-  if (autoMode) {
+  if (autoMode && serverState == SV_OK) {  // chua co may chu: khong tu chup
     drawCountdown();
     if (countdownLeft() <= 0.0f) captureAndRecognize();
   }
@@ -425,6 +796,20 @@ static void handleButton(int key) {
   if (key == KEY_VOL_DOWN) { changeVolume(-10); return; }
   if (screen == SCR_BUSY) return;
 
+  if (screen == SCR_WIFI) {
+    if (wifiView == WV_NOSERVER) {
+      if (key == KEY_SELECT) { serverCheckNow = true; Serial.println("[LAN] Thu lai may chu"); }
+      else { serverDismissed = true; startLive(); }  // BACK: chi xem camera
+      return;
+    }
+    if (key != KEY_SELECT) return;
+    if (wifiView == WV_LOST) wifiOpenPortal(PR_LOST);          // bat hotspot ngay
+    else if (wifiView == WV_BACK) leaveWifi();                  // vao ngay
+    else if (WiFi.status() == WL_CONNECTED) { leaveWifi(); wifiClosePortal(); }
+    else if (wifiNetCount) wifiRetryNow();                      // thu lai mang da luu
+    return;
+  }
+
   if (key == KEY_SELECT) {
     if (screen == SCR_LIVE) captureAndRecognize();  // AUTO: chup ngay, MANUAL: chup
     else startLive();                               // man chao, ket qua, loi
@@ -439,6 +824,41 @@ static void handleButton(int key) {
   else drawFooter();
 }
 
+// Lenh tu dashboard (device_sync.h) - ap dung nhu bam nut tren bo.
+static void applyWebCommand(const String& a) {
+  Serial.printf("[WEB] Lenh %s | screen=%d\n", a.c_str(), (int)screen);
+  if (a == "auto" || a == "manual") {
+    bool want = a == "auto";
+    if (autoMode != want) {
+      autoMode = want;
+      Serial.printf("[MODE] %s (tu web)\n", autoMode ? "AUTO" : "MANUAL");
+      if (screen == SCR_LIVE) startLive();
+      else drawFooter();
+    }
+    return;
+  }
+  if (a == "replay") { replayResult(); return; }
+  if (a == "greeting") { speaking = true; devPublish(); playWelcome(); speaking = false; return; }
+  if (screen == SCR_WIFI) return;  // dang o man WiFi / canh bao: bo qua lenh dieu huong
+  if (a == "start") { if (screen != SCR_LIVE) startLive(); return; }
+  if (a == "stop" || a == "home") { screen = SCR_WELCOME; drawWelcome(true); return; }
+  if (a == "capture") {
+    if (screen != SCR_LIVE) startLive();
+    captureAndRecognize();
+  }
+}
+
+static void devSyncTick() {
+  devPublish();
+  if (!devCmdPending || screen == SCR_BUSY) return;
+  String action = devCmdAction;
+  strlcpy(devState.controlId, devCmdId, sizeof devState.controlId);  // bao web: da nhan lenh
+  devCmdPending = false;
+  applyWebCommand(action);
+  devPublish();
+  devSyncNow = true;  // bao web ngay: nut tren web khong phai cho
+}
+
 static void scanButtons() {
   for (int i = 0; i < 4; i++) {
     bool pressed = digitalRead(BUTTON_PINS[i]) == LOW;
@@ -451,6 +871,15 @@ static void scanButtons() {
       if (pressed) handleButton(i);
     }
   }
+  // Giu BACK 3 s o man chao -> mo hotspot doi WiFi.
+  static bool backHoldFired = buttons[KEY_BACK].stable;  // dang giu tu luc cap dien
+  const ButtonState& back = buttons[KEY_BACK];
+  if (!back.stable) backHoldFired = false;
+  else if (!backHoldFired && screen == SCR_WELCOME && millis() - back.changedAt >= BACK_HOLD_MS) {
+    backHoldFired = true;
+    Serial.println("[WIFI] Giu BACK -> mo hotspot");
+    wifiOpenPortal(PR_MANUAL);
+  }
 }
 
 static void serialCommands() {
@@ -460,6 +889,7 @@ static void serialCommands() {
     else if (c == 's') handleButton(KEY_SELECT);
     else if (c == '+') handleButton(KEY_VOL_UP);
     else if (c == '-') handleButton(KEY_VOL_DOWN);
+    else if (c == 'w') wifiOpenPortal(PR_MANUAL);
     else if (c == 'i')
       Serial.printf("[LIVE] fps=%.1f frames=%lu dropped=%lu cam=%lums ve=%lums jpeg=%uB wifi=%s\n",
                     liveStats.fps, (unsigned long)liveStats.frames,
@@ -474,6 +904,18 @@ static void serialCommands() {
 // =====================================================
 
 void setup() {
+  // Giu SCK o muc thap cang som cang tot: SPI mode 0 nghi o muc thap, tranh xung nhieu
+  // lam man (CS noi GND) dem lech bit. Chi giam rui ro - sua dut diem xem config_35inch_tft.h.
+  if (TFT_SCLK >= 0) { pinMode(TFT_SCLK, OUTPUT); digitalWrite(TFT_SCLK, LOW); }
+  // Tat LED RGB WS2812 tren bo (GPIO48) - choi mat; gui 2 lan cho chac.
+  // Neu GPIO48 dang lam chan TFT (DC/MOSI/SCK) thi KHONG dung toi: LED sang theo tin hieu
+  // man hinh, phan mem khong tat duoc -> phai thao LED/dien tro hoac doi chan TFT.
+  if (BOARD_RGB_PIN >= 0 && BOARD_RGB_PIN != TFT_DC && BOARD_RGB_PIN != TFT_MOSI &&
+      BOARD_RGB_PIN != TFT_SCLK) {
+    rgbLedWrite(BOARD_RGB_PIN, 0, 0, 0);
+    delay(2);
+    rgbLedWrite(BOARD_RGB_PIN, 0, 0, 0);
+  }
   Serial.begin(115200);
   delay(250);
   Serial.println("\n=== ESP32-S3 NHAN DIEN CU CHI TAY ===");
@@ -481,16 +923,18 @@ void setup() {
 #if SHARED_CAM_TFT_BUS
   cameraOK = liveCameraBegin();  // PCB goc: camera phai nhuong bus truoc lcd.init()
 #endif
+  Serial.printf("[TFT] ILI9488 SCK=%d MOSI=%d DC=%d CS=%d RST=%d shared_bus=%d\n",
+                TFT_SCLK, TFT_MOSI, TFT_DC, TFT_CS, TFT_RST, (int)SHARED_CAM_TFT_BUS);
   if (!beginHardware() || !lcdReady) {
     Serial.println("[ERROR] Khoi tao TFT loi");
     return;
   }
+  Serial.println("[TFT] init OK");
 #if !SHARED_CAM_TFT_BUS
   cameraOK = liveCameraBegin();
 #endif
   Serial.printf("[CAM] %s\n", cameraOK ? "LIVE OK" : "KHOI TAO LOI");
   fontsBegin();
-  liveWifiBegin();
 
   for (int i = 0; i < 4; i++) {
     pinMode(BUTTON_PINS[i], INPUT_PULLUP);
@@ -500,18 +944,39 @@ void setup() {
   }
   currentVolumePercent.store(volumePercent);
 
+  // Giu BACK khi cap dien -> vao thang che do cau hinh WiFi.
+  bool forcePortal = buttons[KEY_BACK].stable;
+  if (forcePortal) Serial.println("[WIFI] BACK dang giu luc khoi dong -> hotspot cau hinh");
+  wifiBegin(forcePortal);
+  serverMonitorBegin();  // task rieng: kiem tra may chu nhan dien, khong chan giao dien
+  devSyncBegin();        // task rieng: dong bo trang thai / lenh voi dashboard
+
   screen = SCR_WELCOME;
   drawWelcome(true);
-  playWelcome();
-  drawWelcome(false);
-  Serial.println("[READY] SELECT = vao live, BACK = AUTO/MANUAL, DOWN1/UP1 = am luong");
+  playWelcome();  // WiFi van ket noi ngam trong luc phat; loop() cap nhat the IP sau
+  Serial.println("[READY] SELECT = vao live, BACK = AUTO/MANUAL (giu 3 s o man chao = doi WiFi), DOWN1/UP1 = am luong");
 }
 
 void loop() {
   if (!lcdReady) { delay(1000); return; }
   scanButtons();
   serialCommands();
-  liveWifiTick();
+  if (liveRestartReq) {  // /cam?spi=: khoi dong lai khi SPI ranh (khong cat ngang byte -> man khong lech)
+    Serial.println("[TFT] Doi toc do SPI -> khoi dong lai");
+    lcd.waitDisplay();
+    delay(300);
+    ESP.restart();
+  }
+  wifiTick();
+  wifiUiTick();
+  devSyncTick();
+  if (screen == SCR_WIFI) {
+#if !SHARED_CAM_TFT_BUS
+    if (cameraOK) liveGrabFrame();  // dashboard van xem live trong luc o man WiFi / canh bao
+#endif
+    delay(10);
+    return;
+  }
   if (screen == SCR_WELCOME) {
 #if !SHARED_CAM_TFT_BUS
     // Bo da sua: camera van chay de dashboard xem duoc ngay tu man chao.

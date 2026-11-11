@@ -11,14 +11,16 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 BASE = Path(__file__).resolve().parents[1]
-load_dotenv(BASE / ".env", override=True)
+# Bien moi truong dat san (run_local_lan.ps1, systemd) thang .env.
+load_dotenv(BASE / ".env", override=False)
 load_dotenv(BASE / ".env.cloud", override=False)
 from app.vision_engine import Engine
 from app.cloud_worker import CloudRuntime
 from app.cloud_web import attach_cloud_web
 from app.cloud_control import attach_cloud_control
 from app.lan_web import attach_lan_web
-from app.esp32_live import attach_esp32_live
+from app.lan_discovery import start_discovery
+from app.esp32_live import attach_esp32_live, note_device_ip
 from app.stats import compute_stats
 
 DATA = Path(os.getenv("DATA_DIR", str(BASE / "data"))).resolve()
@@ -129,7 +131,10 @@ async def recognize(raw, source, focus=None, count_all=False, request_id=None):
 @asynccontextmanager
 async def lifespan(app):
     global engine
-    if not KEY and os.getenv("HOST", "0.0.0.0") not in ("127.0.0.1", "localhost", "::1"):
+    open_lan = os.getenv("ALLOW_OPEN_DASHBOARD", "") == "1"  # chi de test local (run_local_lan.ps1)
+    if not KEY and open_lan:
+        log.warning("Dashboard KHÔNG có khóa (ALLOW_OPEN_DASHBOARD=1) - ai cùng mạng LAN cũng mở được.")
+    if not KEY and not open_lan and os.getenv("HOST", "0.0.0.0") not in ("127.0.0.1", "localhost", "::1"):
         raise RuntimeError(
             "API_KEY không được để trống khi mở dashboard ngoài loopback. Chạy install_pi.sh để tạo khóa nếu chưa có."
         )
@@ -144,9 +149,12 @@ async def lifespan(app):
     app.state.cloud_runtime = CloudRuntime(DATA, recognize, commit, voice)
     app.state.lan_api_key = LAN_KEY
     task = asyncio.create_task(app.state.cloud_runtime.run())
+    discovery = await start_discovery(int(os.getenv("PORT", "8000")), note_device_ip)
     try:
         yield
     finally:
+        if discovery:
+            discovery.close()
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
@@ -214,7 +222,10 @@ async def index():
 
 
 @app.get("/health")
-async def health():
+async def health(request: Request):
+    # ESP32 goi /health dinh ky: ghi nho IP cua no de chuyen tiep live camera.
+    if request.client and request.headers.get("user-agent", "").startswith("ESP32HTTPClient"):
+        note_device_ip(request.client.host)
     rt = getattr(app.state, "cloud_runtime", None)
     ready = bool(engine and engine.rec)
     return JSONResponse(

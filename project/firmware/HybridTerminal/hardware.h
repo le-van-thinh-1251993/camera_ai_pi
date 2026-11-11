@@ -3,6 +3,7 @@
 #include <atomic>
 #include <driver/gpio.h>
 #include "config.h"
+#include <Preferences.h>
 #if ENABLE_CAMERA
 #include "esp_camera.h"
 #endif
@@ -23,6 +24,8 @@ class TerminalLCD : public lgfx::LGFX_Device {
 #error Unsupported TFT_KIND. Add a real panel adapter before enabling it.
 #endif
 public:
+  // Doi toc do ghi SPI truoc lcd.init() (gia tri luu trong NVS, xem /cam?spi=).
+  void setWriteHz(uint32_t hz) { auto b = bus.config(); b.freq_write = hz; bus.config(b); }
   TerminalLCD() {
     auto b=bus.config(); b.spi_host=SPI2_HOST; b.spi_mode=0;
     b.freq_write=TFT_SPI_HZ; b.freq_read=8000000; b.pin_sclk=TFT_SCLK;
@@ -194,6 +197,15 @@ static bool validatePins() {
 static bool beginHardware() {
   if(!validatePins()) {Serial.println("CONFIG ERROR: missing/duplicate/invalid GPIO or panel dimensions; hardware not started.");return false;}
 #if TFT_KIND
+  {  // Toc do SPI: gia tri thu qua /cam?spi=<MHz> (NVS "tft"/"spi_mhz"), 0 = TFT_SPI_HZ
+    Preferences p;
+    p.begin("tft", true);
+    uint32_t mhz = p.getUInt("spi_mhz", 0);
+    p.end();
+    uint32_t hz = mhz ? mhz * 1000000UL : (uint32_t)TFT_SPI_HZ;
+    lcd.setWriteHz(hz);
+    Serial.printf("[TFT] SPI %lu MHz%s\n", (unsigned long)(hz / 1000000), mhz ? " (dat qua /cam?spi=)" : "");
+  }
   lcd.init();
   if(TFT_RST<0){ // RESET noi EN: reset mem (0x01) phong khi ESP32 khoi dong lai bang phan mem
     lcd.startWrite();lcd.writeCommand(0x01);lcd.endWrite();delay(150);lcd.init();

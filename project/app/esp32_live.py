@@ -16,9 +16,33 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 log = logging.getLogger("ai-camera.esp32-live")
-HOST = os.getenv("ESP32_LIVE_HOST", "esp32-01.local").strip()
-STATUS_URL = os.getenv("ESP32_LIVE_STATUS_URL", f"http://{HOST}/status")
-STREAM_URL = os.getenv("ESP32_LIVE_STREAM_URL", f"http://{HOST}:81/stream")
+_HOST_ENV = os.getenv("ESP32_LIVE_HOST", "").strip()
+HOST = _HOST_ENV or "esp32-01.local"
+_STATUS_OVERRIDE = os.getenv("ESP32_LIVE_STATUS_URL", "").strip()
+_STREAM_OVERRIDE = os.getenv("ESP32_LIVE_STREAM_URL", "").strip()
+# IP ma ESP32 vua lien lac (goi /health hoac do tim UDP). Uu tien hon esp32-01.local:
+# tren Windows phan giai .local cham (hay qua timeout) hoac khong co.
+_seen_ip = ""
+
+
+def note_device_ip(ip: str) -> None:
+    """Ghi nho IP cua ESP32 khi no goi toi may chu."""
+    global _seen_ip
+    if ip and ip != _seen_ip:
+        log.info("ESP32 live: dung IP %s", ip)
+        _seen_ip = ip
+
+
+def _host() -> str:
+    return _HOST_ENV or _seen_ip or HOST
+
+
+def _status_url() -> str:
+    return _STATUS_OVERRIDE or f"http://{_host()}/status"
+
+
+def _stream_url() -> str:
+    return _STREAM_OVERRIDE or f"http://{_host()}:81/stream"
 MAX_VIEWERS = 3
 _viewers = 0
 
@@ -38,14 +62,14 @@ def attach_esp32_live(app, key: str) -> None:
         _check_key(request, key)
         try:
             async with httpx.AsyncClient(timeout=2.5) as client:
-                response = await client.get(STATUS_URL)
+                response = await client.get(_status_url())
                 response.raise_for_status()
                 data = response.json()
         except (httpx.HTTPError, ValueError) as exc:
             return JSONResponse(
-                {"online": False, "host": HOST, "error": type(exc).__name__}, status_code=200
+                {"online": False, "host": _host(), "error": type(exc).__name__}, status_code=200
             )
-        return {"online": True, "host": HOST, **data}
+        return {"online": True, "host": _host(), **data}
 
     @app.get("/api/esp32/live/stream")
     async def live_stream(request: Request):
@@ -55,12 +79,12 @@ def attach_esp32_live(app, key: str) -> None:
             raise HTTPException(429, "Quá nhiều người đang xem live ESP32.")
         client = httpx.AsyncClient(timeout=httpx.Timeout(5.0, read=15.0))
         try:
-            upstream = await client.send(client.build_request("GET", STREAM_URL), stream=True)
+            upstream = await client.send(client.build_request("GET", _stream_url()), stream=True)
             upstream.raise_for_status()
         except httpx.HTTPError as exc:
             await client.aclose()
-            log.info("ESP32 live unavailable at %s: %s", STREAM_URL, type(exc).__name__)
-            raise HTTPException(503, f"Không kết nối được ESP32 ({HOST}).") from None
+            log.info("ESP32 live unavailable at %s: %s", _stream_url(), type(exc).__name__)
+            raise HTTPException(503, f"Không kết nối được ESP32 ({_host()}).") from None
 
         async def relay():
             global _viewers

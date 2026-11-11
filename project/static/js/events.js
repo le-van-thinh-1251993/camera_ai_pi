@@ -1,4 +1,4 @@
-import { sleep } from './api.js?v=dash-a-2';
+import { sleep } from './api.js?v=dash-a-5';
 export async function watchEvents(api, onEvent, signal) {
   while (!signal.aborted) {
     try {

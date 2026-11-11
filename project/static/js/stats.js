@@ -1,4 +1,4 @@
-import { el } from './api.js?v=dash-a-2';
+import { el } from './api.js?v=dash-a-5';
 
 // Trang Biểu đồ: 3 biểu đồ SVG vẽ tay (không cần thư viện, chạy được khi mất Internet).
 const SVG = 'http://www.w3.org/2000/svg';
@@ -319,7 +319,7 @@ export class StatsView {
     hero.append(big, small);
 
     const width = Math.max(300, box.clientWidth || 800),
-      height = 240,
+      height = window.innerHeight < 860 ? 180 : 240,
       m = { l: 52, r: 16, t: 14, b: 30 },
       pw = width - m.l - m.r,
       ph = height - m.t - m.b;

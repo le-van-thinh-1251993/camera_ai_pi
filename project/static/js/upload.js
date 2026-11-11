@@ -1,4 +1,4 @@
-import { el } from './api.js?v=dash-a-2';
+import { el } from './api.js?v=dash-a-5';
 
 async function optimizeImage(file) {
   let bitmap;

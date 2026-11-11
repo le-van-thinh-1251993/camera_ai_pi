@@ -136,7 +136,7 @@ Dùng duy nhất `project/firmware/HybridTerminal`. Giữ `secrets.h` của thi�
 
 Arduino IDE: core **esp32 3.0.x**, thư viện **LovyanGFX**, board *ESP32S3 Dev Module*,
 `PSRAM: OPI PSRAM`, `Flash Size: 16MB`, `Partition: 16M Flash (3MB APP/9.9MB FATFS)`.
-Khai báo `WIFI_SSID_VALUE`/`WIFI_PASSWORD_VALUE` trong `secrets.h` để bật stream.
+WiFi cấu hình ngay trên thiết bị (xem mục **Cấu hình WiFi** bên dưới); `WIFI_SSID_VALUE`/`WIFI_PASSWORD_VALUE` trong `secrets.h` chỉ là mạng mặc định, không bắt buộc.
 
 Mặc định firmware dành cho **bo đã sửa** (`SHARED_CAM_TFT_BUS 0` trong `config.h`):
 chân 8–12 của socket TFT được cắt khỏi ESP32 và nối dây lại như sau:
@@ -158,7 +158,25 @@ Bo **chưa sửa**: đặt `SHARED_CAM_TFT_BUS 1`. Khi đó TFT dùng lại GPIO
 camera, `live_camera.h` chạy luân phiên từng khung (bật/tắt chân xuất cảm biến qua SCCB),
 chậm hơn nhiều.
 
-Serial Monitor (115200): `b s + -` giả lập 4 nút, `i` in FPS và thời gian chụp/vẽ.
+Serial Monitor (115200): `b s + -` giả lập 4 nút, `i` in FPS và thời gian chụp/vẽ, `w` mở hotspot cấu hình WiFi.
+
+### Cấu hình WiFi (hotspot + trang cấu hình)
+
+Làm theo cách của Xiaozhi ESP32, không cần sửa code khi đổi mạng:
+
+- **Khởi động:** thử lần lượt các mạng đã lưu (mạng lưu gần nhất trước, 12 giây mỗi mạng;
+  mạng trong `secrets.h` thử sau cùng). Vào được thì màn chào hiện **IP** và `esp32-01.local`.
+  Mở `http://<ip>/` trong cùng mạng để xem và đổi WiFi.
+- **Chưa có WiFi / không vào được mạng nào:** thiết bị phát hotspot mở `AI-Camera-XXXX`
+  (4 ký tự cuối MAC). Màn TFT có mã QR để vào hotspot. Điện thoại vào hotspot thì trang
+  cấu hình tự bật; nếu không, mở `http://192.168.4.1/`. Chọn mạng, nhập mật khẩu, bấm **Lưu và kết nối**.
+- **Mất WiFi khi đang chạy:** màn cảnh báo, tự kết nối lại; quá 30 giây thì bật hotspot song song
+  (SELECT để bật ngay) và vẫn thử lại các mạng đã lưu. Khi có mạng: màn "Đã kết nối lại" hiện IP mới
+  cạnh IP cũ trong 8 giây, hotspot tắt sau 20 giây.
+- **Đổi WiFi chủ động:** giữ **BACK 3 giây** ở màn chào, hoặc giữ BACK khi cấp điện, hoặc gõ `w` trên Serial.
+
+Lưu tối đa 5 mạng trong NVS (Preferences `wifi`); nạp lại firmware không mất danh sách.
+Trang cấu hình không có mật khẩu bảo vệ: ai trong cùng mạng LAN hoặc vào được hotspot đều đổi được WiFi.
 
 ### Giao diện TFT và nút vật lý
 
