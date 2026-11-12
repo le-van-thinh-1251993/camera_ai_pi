@@ -133,8 +133,14 @@ async def lifespan(app):
     global engine
     open_lan = os.getenv("ALLOW_OPEN_DASHBOARD", "") == "1"  # chi de test local (run_local_lan.ps1)
     if not KEY and open_lan:
-        log.warning("Dashboard KHÔNG có khóa (ALLOW_OPEN_DASHBOARD=1) - ai cùng mạng LAN cũng mở được.")
-    if not KEY and not open_lan and os.getenv("HOST", "0.0.0.0") not in ("127.0.0.1", "localhost", "::1"):
+        log.warning(
+            "Dashboard KHÔNG có khóa (ALLOW_OPEN_DASHBOARD=1) - ai cùng mạng LAN cũng mở được."
+        )
+    if (
+        not KEY
+        and not open_lan
+        and os.getenv("HOST", "0.0.0.0") not in ("127.0.0.1", "localhost", "::1")
+    ):
         raise RuntimeError(
             "API_KEY không được để trống khi mở dashboard ngoài loopback. Chạy install_pi.sh để tạo khóa nếu chưa có."
         )

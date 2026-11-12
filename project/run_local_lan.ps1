@@ -13,6 +13,7 @@ $env:CLOUD_DEVICE_ID = "esp32-01"
 
 Write-Host "Dashboard: http://127.0.0.1:8000 (khong can khoa)"
 Write-Host "LAN key for ESP32: local-lan-key"
-$python = Join-Path (Split-Path $PSScriptRoot -Parent) ".venv\Scripts\python.exe"
+$python = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+if (!(Test-Path $python)) { $python = Join-Path (Split-Path $PSScriptRoot -Parent) ".venv\Scripts\python.exe" }
 if (!(Test-Path $python)) { $python = "python" }
 & $python scripts\serve.py

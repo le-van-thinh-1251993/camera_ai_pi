@@ -1,4 +1,4 @@
-import { el, sleep } from './api.js?v=dash-a-5';
+import { el, sleep } from './api.js?v=dash-a-6';
 export class CameraController {
   constructor(jobs, ui) {
     this.jobs = jobs;

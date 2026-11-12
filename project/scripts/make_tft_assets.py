@@ -31,6 +31,7 @@ FONTS = [
     ("FONT_VI_15B", "bold", 15, FULL),
     ("FONT_VI_17", "regular", 17, FULL),
     ("FONT_VI_13B", "bold", 13, FULL),
+    ("FONT_VI_24B", "bold", 24, FULL),
     ("FONT_VI_28B", "bold", 28, FULL),
     ("FONT_VI_56B", "bold", 56, "Xin chào!"),
 ]

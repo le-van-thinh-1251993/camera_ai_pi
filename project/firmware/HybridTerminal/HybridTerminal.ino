@@ -165,7 +165,7 @@ static void drawResultCard(const char* label, const String& big, uint16_t bigCol
   card(CARD1_Y, CARD1_H);
   int x = SIDE_X + CARD_PAD, maxW = SIDE_W - 2 * CARD_PAD;
   text(F_12B, label, x, CARD1_Y + 20, C_MUTE, C_PANEL);
-  FontId bigFont = textWidth(F_28B, big) <= maxW ? F_28B : F_15B;
+  FontId bigFont = textWidth(F_24B, big) <= maxW ? F_24B : F_15B;
   text(bigFont, big, x, CARD1_Y + 58, bigColor, C_PANEL);
   if (sub.length()) {
     int tx = x;

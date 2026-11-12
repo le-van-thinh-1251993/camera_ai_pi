@@ -6,9 +6,9 @@
 #include "fonts_vi.h"
 
 // ===== FONT TIENG VIET (VLW tao boi scripts/make_tft_assets.py) =====
-enum FontId { F_12B, F_13B, F_15, F_15B, F_17, F_28B, F_56B, F_COUNT };
+enum FontId { F_12B, F_13B, F_15, F_15B, F_17, F_24B, F_28B, F_56B, F_COUNT };
 static const uint8_t* const FONT_DATA[F_COUNT] = {
-  FONT_VI_12B, FONT_VI_13B, FONT_VI_15, FONT_VI_15B, FONT_VI_17, FONT_VI_28B, FONT_VI_56B,
+  FONT_VI_12B, FONT_VI_13B, FONT_VI_15, FONT_VI_15B, FONT_VI_17, FONT_VI_24B, FONT_VI_28B, FONT_VI_56B,
 };
 struct ViFont {
   lgfx::v1::PointerWrapper data;

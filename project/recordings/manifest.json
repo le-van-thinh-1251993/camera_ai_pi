@@ -1,107 +1,107 @@
 {
-  "source": "User supplied D:/Thịnh/Voice",
+  "source": "User supplied voice.rar (12 file mp3)",
   "clips": {
     "Count_1": {
       "file": "1.wav",
-      "sha256": "39927e39fb1c87a47213ae68733679a7ce9db28cfb5230ede6a0a456e04ec51b",
-      "text": "Bạn đang giơ một ngón tay.",
-      "duration_seconds": 1.896,
+      "sha256": "956301c9af6c4776eee6d4bbad17bf04727d27880faf83eb90a81b82cead79d9",
+      "text": "Xin chào! Rất vui được gặp bạn.",
+      "duration_seconds": 2.522,
       "sample_rate": 24000,
       "channels": 1
     },
     "Count_2": {
       "file": "2.wav",
-      "sha256": "82b72746a4b969d2b670af892e5f1c23b8b1ed6d5f4544164aa944d6a2470407",
-      "text": "Bạn đang giơ hai ngón tay.",
-      "duration_seconds": 1.824,
+      "sha256": "3b46cc6be547458cf9019a4d638351f3a7be693ee3a764b4f4b6a5a596644ac7",
+      "text": "Bạn có khỏe không?",
+      "duration_seconds": 1.322,
       "sample_rate": 24000,
       "channels": 1
     },
     "Count_3": {
       "file": "3.wav",
-      "sha256": "11e21e20c5329f097f79880cf06f1590355fa63106ed4bf8d6eb97ec9adfcec4",
-      "text": "Bạn đang giơ ba ngón tay.",
-      "duration_seconds": 1.824,
+      "sha256": "58a36048fad15ea26e70860b04a71069fedb4862a1df4166ecab82d48c3e8bdf",
+      "text": "Tôi khỏe, cảm ơn bạn!",
+      "duration_seconds": 1.802,
       "sample_rate": 24000,
       "channels": 1
     },
     "Count_4": {
       "file": "4.wav",
-      "sha256": "169d7258399d49ea7510f455a7b345305d6849b03d2493b0db9c623fb75c4f6a",
-      "text": "Bạn đang giơ bốn ngón tay.",
-      "duration_seconds": 1.824,
+      "sha256": "490317a9f9fb9eaebea66d28c714360f4a31e9d4e195d2ed2055f61d077d9b8e",
+      "text": "Bạn tên là gì?",
+      "duration_seconds": 1.346,
       "sample_rate": 24000,
       "channels": 1
     },
     "Count_5": {
       "file": "5.wav",
-      "sha256": "50fdc101a3892734245dbaf6149a5057c5db6d4fdf2b3456fb8fcb36f34cfa5e",
-      "text": "Bạn đang giơ năm ngón tay.",
-      "duration_seconds": 1.848,
+      "sha256": "e1000aadb2234face00d6e22fc4a3ae48d4e12874ad1ec6d63b7f739bd731be0",
+      "text": "Xin lỗi, bạn nói lại được không?",
+      "duration_seconds": 2.783,
       "sample_rate": 24000,
       "channels": 1
     },
     "Count_6": {
       "file": "6.wav",
-      "sha256": "87c979110f3800d43fd1c79b2f717f2a93f97d8529f81e42c0b426ae63369c1b",
-      "text": "Bạn đang giơ sáu ngón tay.",
-      "duration_seconds": 1.848,
+      "sha256": "3243a8c9b25c1657d276ff155c7c764b1b0577db5743bfcb9827680bb5322798",
+      "text": "Vâng, tôi đồng ý.",
+      "duration_seconds": 1.712,
       "sample_rate": 24000,
       "channels": 1
     },
     "Count_7": {
       "file": "7.wav",
-      "sha256": "2ddac8af99ba428c7c54ebf726b5ac75b25c47ae74e8517b4e9160c2f5f42e82",
-      "text": "Bạn đang giơ bảy ngón tay.",
-      "duration_seconds": 1.848,
+      "sha256": "7336befd7481f7839fc2df23e10fdbc9952daa7b6e6b840ef4417c46e903aa31",
+      "text": "Không, cảm ơn bạn.",
+      "duration_seconds": 1.581,
       "sample_rate": 24000,
       "channels": 1
     },
     "Count_8": {
       "file": "8.wav",
-      "sha256": "1125f986c4f3d2123cace766498860a393f87f56c09208f464615d8a527d9a14",
-      "text": "Bạn đang giơ tám ngón tay.",
-      "duration_seconds": 1.872,
+      "sha256": "61d96d7827a94375671cc6f5733ee62fae5da3cb7eccb508ec86041cb8de5677",
+      "text": "Bạn chờ tôi một chút nhé.",
+      "duration_seconds": 1.869,
       "sample_rate": 24000,
       "channels": 1
     },
     "Count_9": {
       "file": "9.wav",
-      "sha256": "13a0e21789d63253aaa2fc6f0b1026872810ba918b6a152373a934e88702a477",
-      "text": "Bạn đang giơ chín ngón tay.",
-      "duration_seconds": 1.92,
+      "sha256": "f961e96940dc454fc4ce6935fc78de93a038c496ec8cc0866a5acc3a125f52a1",
+      "text": "Tạm biệt, hẹn gặp lại!",
+      "duration_seconds": 1.738,
       "sample_rate": 24000,
       "channels": 1
     },
     "Count_10": {
       "file": "10.wav",
-      "sha256": "53e4a5cbb670e2c8d9999a0511c5d9c114d8d89f6745b3fc31b11b5b2b3acfd4",
-      "text": "Bạn đang giơ mười ngón tay.",
-      "duration_seconds": 1.896,
+      "sha256": "ef739275ba35666fd312f65f24eae47aaeb6fb5bcdadfd09096c3a8323be45e6",
+      "text": "Chúc bạn một ngày vui vẻ!",
+      "duration_seconds": 1.817,
       "sample_rate": 24000,
       "channels": 1
     },
     "Greeting": {
       "file": "xinchao.wav",
-      "sha256": "a848648abfb3eda3a9599f87c2a13147f521029a8251955e4ea34efae213af23",
+      "sha256": "4c44bef60da6dcf343dc77478a30673d04cd143a431957f58dac62be0de65952",
       "text": "Xin chào!",
-      "duration_seconds": 1.344,
+      "duration_seconds": 1.346,
       "sample_rate": 24000,
       "channels": 1
     },
     "Unknown": {
       "file": "chuanhandiencuchi.wav",
-      "sha256": "fddaabdd3b8fd420107000c9c7496cc733a8d480383c27b48a2183bbe8278d5d",
-      "text": "Tôi chưa nhận diện được cử chỉ. Bạn vui lòng thử lại nhé!",
-      "duration_seconds": 3.672,
+      "sha256": "648f47b72544cc22bc61cef9ca462cd880cd5a31f970740713cac2fad97e9e9c",
+      "text": "Tôi chưa nhận diện được cử chỉ. Bạn vui lòng giữ tay rõ trong khung hình.",
+      "duration_seconds": 5.03,
       "sample_rate": 24000,
       "channels": 1
     },
     "No_hand": {
       "file": "chuanhandiencuchi.wav",
-      "sha256": "fddaabdd3b8fd420107000c9c7496cc733a8d480383c27b48a2183bbe8278d5d",
-      "text": "Tôi chưa nhận diện được cử chỉ. Bạn vui lòng thử lại nhé!",
-      "duration_seconds": 3.672,
+      "sha256": "648f47b72544cc22bc61cef9ca462cd880cd5a31f970740713cac2fad97e9e9c",
+      "text": "Tôi chưa nhận diện được cử chỉ. Bạn vui lòng giữ tay rõ trong khung hình.",
+      "duration_seconds": 5.03,
       "sample_rate": 24000,
       "channels": 1
     }

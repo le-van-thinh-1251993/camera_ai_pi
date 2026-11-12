@@ -92,7 +92,9 @@ doc = call("DOM.getDocument")
 node = call("DOM.querySelector", {"nodeId": doc["root"]["nodeId"], "selector": "#file"})["nodeId"]
 call("DOM.setFileInputFiles", {"nodeId": node, "files": [str(project / "samples/victory.jpg")]})
 evaluate("document.getElementById('form').requestSubmit()")
-until("document.getElementById('gesture').textContent==='Giơ 2 ngón tay' && audioPlays===1")
+until(
+    "document.getElementById('gesture').textContent==='Phát hiện bạn đang giơ 2 ngón tay' && audioPlays===1"
+)
 time.sleep(2)
 assert evaluate("audioPlays") == 1
 shot("qa-upload.png")

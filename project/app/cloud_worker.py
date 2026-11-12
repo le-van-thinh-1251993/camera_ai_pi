@@ -18,6 +18,24 @@ from app.screen_renderer import screen_jpeg
 log = logging.getLogger("ai-camera.cloud")
 
 
+def unknown_text():
+    """Câu "chưa nhận diện" lấy từ config/gestures.json để khớp với clip voice."""
+    try:
+        import json
+
+        phrases = json.loads(
+            (Path(__file__).resolve().parents[1] / "config/gestures.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        return phrases.get("Unknown") or UNKNOWN_FALLBACK
+    except (OSError, ValueError):
+        return UNKNOWN_FALLBACK
+
+
+UNKNOWN_FALLBACK = "Tôi chưa nhận diện được cử chỉ. Bạn vui lòng giữ tay rõ trong khung hình."
+
+
 class CloudRuntime:
     def __init__(self, data, recognize, commit, voice):
         self.data = Path(data)
@@ -114,7 +132,7 @@ class CloudRuntime:
             event.update(
                 gesture="Unknown",
                 finger_count=None,
-                text="Chưa nhận diện được cử chỉ. Bạn vui lòng giữ tay rõ trong khung hình trong 2 giây.",
+                text=unknown_text(),
             )
         if final:
             event["audio_url"], event["tts"] = await self.voice(event["gesture"])
@@ -241,7 +259,7 @@ class CloudRuntime:
                     event.update(
                         gesture="Unknown",
                         finger_count=None,
-                        text="Chưa nhận diện được cử chỉ. Bạn vui lòng giữ tay rõ trong khung hình trong 2 giây.",
+                        text=unknown_text(),
                     )
                 if final:
                     event["audio_url"], event["tts"] = await self.voice(event["gesture"])

@@ -9,6 +9,7 @@ $env:API_KEY = ""
 $env:LAN_API_KEY = ""
 $env:CLOUD_DEVICE_ID = "esp32-01"
 
-$python = Join-Path (Split-Path $PSScriptRoot -Parent) ".venv\Scripts\python.exe"
+$python = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+if (!(Test-Path $python)) { $python = Join-Path (Split-Path $PSScriptRoot -Parent) ".venv\Scripts\python.exe" }
 if (!(Test-Path $python)) { $python = "python" }
 & $python scripts\serve.py

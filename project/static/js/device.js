@@ -1,4 +1,4 @@
-import { el, requestId } from './api.js?v=dash-a-5';
+import { el, requestId } from './api.js?v=dash-a-6';
 export class DeviceController {
   constructor(api, ui) {
     this.api = api;

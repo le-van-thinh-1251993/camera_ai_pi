@@ -43,6 +43,8 @@ def _status_url() -> str:
 
 def _stream_url() -> str:
     return _STREAM_OVERRIDE or f"http://{_host()}:81/stream"
+
+
 MAX_VIEWERS = 3
 _viewers = 0
 

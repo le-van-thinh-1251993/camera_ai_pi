@@ -1,11 +1,11 @@
-import { Api, el } from './js/api.js?v=dash-a-5';
-import { CloudJobs } from './js/cloud.js?v=dash-a-5';
-import { AudioPlayer } from './js/audio.js?v=dash-a-5';
-import { CameraController } from './js/camera.js?v=dash-a-5';
-import { UploadController } from './js/upload.js?v=dash-a-5';
-import { DeviceController } from './js/device.js?v=dash-a-5';
-import { watchEvents } from './js/events.js?v=dash-a-5';
-import { StatsView } from './js/stats.js?v=dash-a-5';
+import { Api, el } from './js/api.js?v=dash-a-6';
+import { CloudJobs } from './js/cloud.js?v=dash-a-6';
+import { AudioPlayer } from './js/audio.js?v=dash-a-6';
+import { CameraController } from './js/camera.js?v=dash-a-6';
+import { UploadController } from './js/upload.js?v=dash-a-6';
+import { DeviceController } from './js/device.js?v=dash-a-6';
+import { watchEvents } from './js/events.js?v=dash-a-6';
+import { StatsView } from './js/stats.js?v=dash-a-6';
 
 const api = new Api();
 let current = null,
@@ -25,9 +25,9 @@ const jobs = new CloudJobs(api, (message) => {
 });
 const gestureName = (event) =>
   event.finger_count
-    ? `${event.finger_count} ngón`
+    ? `Phát hiện bạn đang giơ ${event.finger_count} ngón tay`
     : event.partial && event.visible_finger_count
-      ? `Ít nhất ${event.visible_finger_count} ngón`
+      ? `Phát hiện ít nhất ${event.visible_finger_count} ngón tay`
       : event.gesture === 'No_hand'
         ? 'Không thấy tay'
         : 'Chưa rõ';
