@@ -1,4 +1,4 @@
-import { requestId, sleep } from './api.js?v=dash-a-6';
+import { requestId, sleep } from './api.js?v=dash-a-7';
 export class CloudJobs {
   constructor(api, status) {
     this.api = api;

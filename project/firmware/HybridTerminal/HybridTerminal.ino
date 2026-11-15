@@ -18,7 +18,7 @@
 //
 //   Man chao  -> phat "Xin chao", SELECT de vao live
 //   Live      -> khung camera 320x240 + cot ket qua / y nghia + footer
-//                AUTO: giu yen tay 2 s -> tu chup.  MANUAL: SELECT de chup.
+//                AUTO: giu yen tay 5 s (AUTO_HOLD_MS) -> tu chup.  MANUAL: SELECT de chup.
 //   Ket qua   -> anh vua chup dung yen, loa doc y nghia, 8 s sau ve live
 //
 // BACK1   GPIO47 = doi che do AUTO / MANUAL
@@ -79,7 +79,7 @@ static Screen screenBeforeWifi = SCR_WELCOME;
 static uint32_t wifiViewAt = 0;
 static constexpr uint32_t BACK_HOLD_MS = 3000;     // giu BACK de mo hotspot doi WiFi
 static constexpr uint32_t WIFI_BACK_SHOW_MS = 8000; // man "Da ket noi lai"
-static bool autoMode = true;
+static bool autoMode = false;  // mac dinh MANUAL khi khoi dong (BACK / web de doi sang AUTO)
 static bool cameraOK = false;
 static uint32_t stageAt = 0;     // luc vao trang thai hien tai
 static int lastTenths = -1;      // dem nguoc da ve (don vi 0,1 s)
@@ -94,7 +94,7 @@ static String resultBig = "—";
 static String resultMeaning;
 static bool resultKnown = false;
 
-static const char* HINT_AUTO = "Giữ yên tay 2 giây để tự chụp.";
+static const char* HINT_AUTO = "Giữ yên tay 5 giây để tự chụp.";
 static const char* HINT_MANUAL = "Giơ tay cố định vào khung rồi nhấn SELECT để chụp.";
 
 // =====================================================
@@ -292,7 +292,7 @@ static void drawLiveChrome() {
     drawResultCard("KẾT QUẢ", "—", C_MUTE, "", C_WARN);
     drawMeaningCard(HINT_AUTO);
   } else {
-    drawResultCard(resultKnown ? "KẾT QUẢ TRƯỚC" : "KẾT QUẢ", resultBig,
+    drawResultCard(resultKnown ? "LẦN TRƯỚC" : "KẾT QUẢ", resultBig,
                    resultKnown ? C_FG : C_MUTE, "Nhấn SELECT", C_ACC);
     drawMeaningCard(resultMeaning.length() ? resultMeaning : String(HINT_MANUAL));
   }
@@ -301,7 +301,12 @@ static void drawLiveChrome() {
     lcd.fillRect(CAM_X, CAM_Y, CAM_W, CAM_H, C_PANEL);
     text(F_15B, "Không khởi động được camera", CAM_X + CAM_W / 2, CAM_Y + CAM_H / 2, C_WARN,
          C_PANEL, textdatum_t::baseline_center);
+    return;
   }
+  // "● LIVE" o goc phai hang nhan the ket qua: ve mot lan, dung yen.
+  int right = SIDE_X + SIDE_W - CARD_PAD, y = CARD1_Y + 20;
+  text(F_12B, "LIVE", right, y, C_RED, C_PANEL, textdatum_t::baseline_right);
+  lcd.fillCircle(right - textWidth(F_12B, "LIVE") - 7, y - 4, 3, C_RED);
 }
 
 static void startLive() {
@@ -768,10 +773,8 @@ static void liveTick() {
     return;
   }
   if (screen != SCR_LIVE || !cameraOK) return;
-  if (liveGrabFrame()) {
-    liveDrawFrame(CAM_X, CAM_Y, CAM_W, CAM_H);
-    drawBadge(false);
-  }
+  // Nhan LIVE nam o the ket qua (ve 1 lan) - khong ve de len anh moi khung (gay nhap nhay).
+  if (liveGrabFrame()) liveDrawFrame(CAM_X, CAM_Y, CAM_W, CAM_H);
   if (autoMode && serverState == SV_OK) {  // chua co may chu: khong tu chup
     drawCountdown();
     if (countdownLeft() <= 0.0f) captureAndRecognize();
@@ -782,12 +785,66 @@ static void liveTick() {
 // NUT BAM
 // =====================================================
 
+// Am luong luu trong NVS ("audio": vol = hien tai, prev = muc truoc do) -> khoi dong lai giu nguyen.
+static void volumeLoad() {
+  Preferences p;
+  p.begin("audio", true);
+  int v = p.getInt("vol", -1), prev = p.getInt("prev", -1);
+  p.end();
+  if (v >= 0 && v <= 100) {
+    volumePercent = v;
+    if (prev >= 0) Serial.printf("[VOLUME] Khoi phuc %d%% (lan doi truoc: %d%% -> %d%%)\n", v, prev, v);
+    else Serial.printf("[VOLUME] Khoi phuc %d%%\n", v);
+  } else {
+    Serial.printf("[VOLUME] Chua luu, dung mac dinh %d%%\n", volumePercent);
+  }
+  currentVolumePercent.store(volumePercent);
+}
+
 static void changeVolume(int delta) {
+  int before = volumePercent;
   volumePercent = constrain(volumePercent + delta, 0, 100);
   currentVolumePercent.store(volumePercent);
-  Serial.printf("[VOLUME] %d%%\n", volumePercent);
+  if (volumePercent != before) {
+    Preferences p;
+    p.begin("audio", false);
+    p.putInt("prev", before);
+    p.putInt("vol", volumePercent);
+    p.end();
+  }
+  Serial.printf("[VOLUME] %d%% -> %d%% (da luu)\n", before, volumePercent);
   drawFooter();
   speakerBeep();
+}
+
+// Man TRANG do lech bit (CS noi GND: xung nhieu tren SCK luc khoi dong lam man dem du nhip).
+// Moi lan goi: chen them 1 xung SCK (dich canh byte 1 bit), reset mem + init lai, ve lai man.
+// Toi da 8 lan la khop. Kich hoat: giu cung luc DOWN1 + UP1, hoac lenh serial 'r'.
+static int tftShift = 0;
+static void tftResync() {
+#if TFT_KIND && !SHARED_CAM_TFT_BUS
+  lcd.waitDisplay();
+  tftShift = (tftShift + 1) % 8;
+  Serial.printf("[TFT] Dong bo lai: dich 1 nhip (lan %d/8)\n", tftShift);
+  gpio_num_t sck = (gpio_num_t)TFT_SCLK;
+  gpio_set_level(sck, 0);
+  esp_rom_gpio_pad_select_gpio(TFT_SCLK);  // tach SCK khoi SPI2
+  gpio_set_direction(sck, GPIO_MODE_OUTPUT);
+  gpio_set_level(sck, 0); delayMicroseconds(5);
+  gpio_set_level(sck, 1); delayMicroseconds(5);  // 1 nhip (mode 0 lay mau canh len)
+  gpio_set_level(sck, 0); delayMicroseconds(5);
+  esp_rom_gpio_connect_out_signal(TFT_SCLK, spi_periph_signal[SPI2_HOST].spiclk_out, false, false);
+  lcd.setWriteHz(TFT_INIT_HZ);  // gui lenh init cham cho chac
+  lcd.startWrite(); lcd.writeCommand(0x00); lcd.writeCommand(0x01); lcd.endWrite();  // NOP + SWRESET
+  delay(150);
+  lcd.getPanel()->init(false);
+  lcd.setRotation(TFT_ROTATION);
+  lcd.fillScreen(0);
+  lcd.setWriteHz(tftWriteHz);
+  if (screen == SCR_WIFI) enterWifi(wifiView);
+  else if (screen == SCR_WELCOME) drawWelcome(true);
+  else if (screen != SCR_BUSY) startLive();
+#endif
 }
 
 static void handleButton(int key) {
@@ -871,6 +928,15 @@ static void scanButtons() {
       if (pressed) handleButton(i);
     }
   }
+  // Giu cung luc DOWN1 + UP1 khi man trang: cu ~1,2 s dong bo lai 1 lan, tha tay khi man len.
+  // (Am luong -10 roi +10 nen khong doi.)
+  static uint32_t resyncAt = 0;
+  if (buttons[KEY_VOL_DOWN].stable && buttons[KEY_VOL_UP].stable) {
+    uint32_t since = max(buttons[KEY_VOL_DOWN].changedAt, buttons[KEY_VOL_UP].changedAt);
+    if (!resyncAt) resyncAt = since + 1000;
+    if ((int32_t)(millis() - resyncAt) >= 0) { tftResync(); resyncAt = millis() + 1200; }
+  } else resyncAt = 0;
+
   // Giu BACK 3 s o man chao -> mo hotspot doi WiFi.
   static bool backHoldFired = buttons[KEY_BACK].stable;  // dang giu tu luc cap dien
   const ButtonState& back = buttons[KEY_BACK];
@@ -890,6 +956,7 @@ static void serialCommands() {
     else if (c == '+') handleButton(KEY_VOL_UP);
     else if (c == '-') handleButton(KEY_VOL_DOWN);
     else if (c == 'w') wifiOpenPortal(PR_MANUAL);
+    else if (c == 'r') tftResync();
     else if (c == 'i')
       Serial.printf("[LIVE] fps=%.1f frames=%lu dropped=%lu cam=%lums ve=%lums jpeg=%uB wifi=%s\n",
                     liveStats.fps, (unsigned long)liveStats.frames,
@@ -907,6 +974,8 @@ void setup() {
   // Giu SCK o muc thap cang som cang tot: SPI mode 0 nghi o muc thap, tranh xung nhieu
   // lam man (CS noi GND) dem lech bit. Chi giam rui ro - sua dut diem xem config_35inch_tft.h.
   if (TFT_SCLK >= 0) { pinMode(TFT_SCLK, OUTPUT); digitalWrite(TFT_SCLK, LOW); }
+  // CS noi GPIO: giu muc cao (man bo qua moi xung) cho toi khi lcd.init() dieu khien.
+  if (TFT_CS >= 0) { pinMode(TFT_CS, OUTPUT); digitalWrite(TFT_CS, HIGH); }
   // Tat LED RGB WS2812 tren bo (GPIO48) - choi mat; gui 2 lan cho chac.
   // Neu GPIO48 dang lam chan TFT (DC/MOSI/SCK) thi KHONG dung toi: LED sang theo tin hieu
   // man hinh, phan mem khong tat duoc -> phai thao LED/dien tro hoac doi chan TFT.
@@ -942,7 +1011,7 @@ void setup() {
     buttons[i].raw = buttons[i].stable = pressed;
     buttons[i].changedAt = millis();
   }
-  currentVolumePercent.store(volumePercent);
+  volumeLoad();  // am luong lan truoc (NVS)
 
   // Giu BACK khi cap dien -> vao thang che do cau hinh WiFi.
   bool forcePortal = buttons[KEY_BACK].stable;

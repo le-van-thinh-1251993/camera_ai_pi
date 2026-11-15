@@ -41,6 +41,10 @@ public:
 static TerminalLCD lcd;
 #endif
 static bool lcdReady=false, cameraReady=false;
+// Lenh khoi tao man gui o toc do thap (MOSI chung LED do -> 20 MHz de hong bit lenh -> man trang),
+// xong moi tang len toc do ve (tftWriteHz).
+static constexpr uint32_t TFT_INIT_HZ = 8000000;
+static uint32_t tftWriteHz = 0;
 static std::atomic<int> currentVolumePercent{AUDIO_GAIN_PERCENT};
 
 static void drawDisplayDemo() {
@@ -202,15 +206,19 @@ static bool beginHardware() {
     p.begin("tft", true);
     uint32_t mhz = p.getUInt("spi_mhz", 0);
     p.end();
-    uint32_t hz = mhz ? mhz * 1000000UL : (uint32_t)TFT_SPI_HZ;
-    lcd.setWriteHz(hz);
-    Serial.printf("[TFT] SPI %lu MHz%s\n", (unsigned long)(hz / 1000000), mhz ? " (dat qua /cam?spi=)" : "");
+    tftWriteHz = mhz ? mhz * 1000000UL : (uint32_t)TFT_SPI_HZ;
+    Serial.printf("[TFT] SPI %lu MHz%s, init o %lu MHz\n", (unsigned long)(tftWriteHz / 1000000),
+                  mhz ? " (dat qua /cam?spi=)" : "", (unsigned long)(TFT_INIT_HZ / 1000000));
   }
+  lcd.setWriteHz(TFT_INIT_HZ);
+  delay(150);  // RESET noi EN: cho man tu reset xong (can 120 ms) truoc lenh dau tien
   lcd.init();
   if(TFT_RST<0){ // RESET noi EN: reset mem (0x01) phong khi ESP32 khoi dong lai bang phan mem
-    lcd.startWrite();lcd.writeCommand(0x01);lcd.endWrite();delay(150);lcd.init();
+    lcd.startWrite();lcd.writeCommand(0x00);lcd.writeCommand(0x01);lcd.endWrite();delay(150);lcd.init();
   }
-  lcd.setRotation(TFT_ROTATION);lcd.fillScreen(0);lcdReady=true;
+  lcd.setRotation(TFT_ROTATION);lcd.fillScreen(0);
+  lcd.setWriteHz(tftWriteHz);  // co hieu luc tu giao dich SPI ke tiep
+  lcdReady=true;
   if(TFT_BL>=0){pinMode(TFT_BL,OUTPUT);digitalWrite(TFT_BL,TFT_BL_ACTIVE_HIGH?HIGH:LOW);}
 #endif
   // Camera khoi tao trong live_camera.h (liveCameraBegin); PCB goc can goi

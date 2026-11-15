@@ -9,7 +9,7 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap"
     />
-    <link rel="stylesheet" href="/static/style.css?v=dash-a-6" />
+    <link rel="stylesheet" href="/static/style.css?v=dash-a-7" />
   </head>
   <body>
     <header class="top">
@@ -63,7 +63,7 @@
           <progress
             id="hold-progress"
             class="camera-only"
-            max="2"
+            max="5"
             value="0"
             aria-label="Thời gian giữ cử chỉ"
           ></progress>
@@ -72,7 +72,7 @@
         <!-- Camera: ESP32 / camera máy này -->
         <div class="controls camera-only">
           <div class="segmented" role="group" aria-label="Chế độ chụp">
-            <button id="mode-auto" type="button" aria-pressed="true">Auto · giữ 2 giây</button
+            <button id="mode-auto" type="button" aria-pressed="true">Auto · giữ 5 giây</button
             ><button id="mode-manual" type="button" aria-pressed="false">Manual</button>
           </div>
           <span id="device-controls" class="esp32-only">
@@ -278,6 +278,6 @@
         <option value="manual">manual</option>
       </select>
     </dialog>
-    <script type="module" src="/static/app.js?v=dash-a-6"></script>
+    <script type="module" src="/static/app.js?v=dash-a-7"></script>
   </body>
 </html>

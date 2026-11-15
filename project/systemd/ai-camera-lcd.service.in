@@ -1,0 +1,17 @@
+[Unit]
+Description=Man ST7789 tren Pi - bang trang thai AI Camera
+After=ai-camera.service
+Wants=ai-camera.service
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@ROOT@
+ExecStart=@PYTHON@ @ROOT@/scripts/pi_lcd.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+SupplementaryGroups=gpio spi
+
+[Install]
+WantedBy=multi-user.target

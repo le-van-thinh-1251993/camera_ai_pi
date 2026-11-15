@@ -1,4 +1,6 @@
 export const el = (id) => document.getElementById(id);
+// Che do Auto: giu yen tay bao nhieu giay thi tu chup (trung AUTO_HOLD_MS trong firmware).
+export const HOLD_SECONDS = 5;
 export function requestId() {
   if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID();
   if (typeof crypto?.getRandomValues === 'function') {

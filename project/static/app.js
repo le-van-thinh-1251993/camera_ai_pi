@@ -1,11 +1,11 @@
-import { Api, el } from './js/api.js?v=dash-a-6';
-import { CloudJobs } from './js/cloud.js?v=dash-a-6';
-import { AudioPlayer } from './js/audio.js?v=dash-a-6';
-import { CameraController } from './js/camera.js?v=dash-a-6';
-import { UploadController } from './js/upload.js?v=dash-a-6';
-import { DeviceController } from './js/device.js?v=dash-a-6';
-import { watchEvents } from './js/events.js?v=dash-a-6';
-import { StatsView } from './js/stats.js?v=dash-a-6';
+import { Api, el, HOLD_SECONDS } from './js/api.js?v=dash-a-7';
+import { CloudJobs } from './js/cloud.js?v=dash-a-7';
+import { AudioPlayer } from './js/audio.js?v=dash-a-7';
+import { CameraController } from './js/camera.js?v=dash-a-7';
+import { UploadController } from './js/upload.js?v=dash-a-7';
+import { DeviceController } from './js/device.js?v=dash-a-7';
+import { watchEvents } from './js/events.js?v=dash-a-7';
+import { StatsView } from './js/stats.js?v=dash-a-7';
 
 const api = new Api();
 let current = null,
@@ -174,7 +174,7 @@ const camera = new CameraController(jobs, {
   error,
   progress: (seconds) => {
     el('hold-progress').value = seconds;
-    const left = Math.max(0, 2 - seconds).toLocaleString('vi-VN', {
+    const left = Math.max(0, HOLD_SECONDS - seconds).toLocaleString('vi-VN', {
       minimumFractionDigits: 1,
       maximumFractionDigits: 1,
     });

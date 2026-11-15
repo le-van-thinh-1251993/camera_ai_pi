@@ -112,7 +112,7 @@ static void serverMonitorTask(void*) {
 #ifdef LAN_HOST_IP_VALUE
       cand[n].fromString(LAN_HOST_IP_VALUE); tag[n++] = "secrets.h";
 #endif
-      cand[n] = MDNS.queryHost(LAN_HOSTNAME, 1500); tag[n++] = "ai-camera.local";
+      cand[n] = MDNS.queryHost(LAN_HOSTNAME, 1500); tag[n++] = "Pi-AI.local";
       cand[n] = lanDiscover(); tag[n++] = "dò tìm";
       cand[n] = WiFi.gatewayIP(); tag[n++] = "gateway";
     }
@@ -124,7 +124,7 @@ static void serverMonitorTask(void*) {
       tried += cand[i].toString() + " (" + tag[i] + ")";
       if (lanHealth(cand[i])) found = cand[i];
     }
-    if (!tried.length()) tried = lanServerHost[0] ? String(lanServerHost) + " (không phân giải được)" : String("ai-camera.local");
+    if (!tried.length()) tried = lanServerHost[0] ? String(lanServerHost) + " (không phân giải được)" : String("Pi-AI.local");
     strlcpy(serverTried, tried.c_str(), sizeof serverTried);
     serverChecks = serverChecks + 1;
     if (found) {

@@ -113,6 +113,8 @@ static void liveTuneSensor(sensor_t* s) {
   CAM_SET(set_gainceiling, CAM_GAINCEILING);
   CAM_SET(set_ae_level, CAM_AE_LEVEL);
   CAM_SET(set_brightness, CAM_BRIGHTNESS);
+  CAM_SET(set_saturation, CAM_SATURATION);
+  CAM_SET(set_contrast, CAM_CONTRAST);
   CAM_SET(set_sharpness, CAM_SHARPNESS);
   CAM_SET(set_denoise, CAM_DENOISE);
   CAM_SET(set_bpc, 1);
@@ -120,6 +122,8 @@ static void liveTuneSensor(sensor_t* s) {
   CAM_SET(set_lenc, 1);
   CAM_SET(set_whitebal, 1);
   CAM_SET(set_awb_gain, 1);
+  CAM_SET(set_wb_mode, 0);         // can bang trang tu dong
+  CAM_SET(set_special_effect, 0);  // khong hieu ung (2 = den trang)
 }
 #undef CAM_SET
 
@@ -309,10 +313,19 @@ static esp_err_t liveCamHandler(httpd_req_t* req) {
     return true;
   };
   int x;
-  if (val("ae", -2, 2, x) && s->set_ae_level) s->set_ae_level(s, x);
-  if (val("bright", -2, 2, x) && s->set_brightness) s->set_brightness(s, x);
-  if (val("contrast", -2, 2, x) && s->set_contrast) s->set_contrast(s, x);
-  if (val("sat", -2, 2, x) && s->set_saturation) s->set_saturation(s, x);
+  // Gioi han rong: driver tu tu choi muc ngoai pham vi cua cam bien (OV3660 ae toi +5).
+  if (val("ae", -5, 5, x) && s->set_ae_level) s->set_ae_level(s, x);
+  if (val("bright", -3, 3, x) && s->set_brightness) s->set_brightness(s, x);
+  if (val("contrast", -3, 3, x) && s->set_contrast) s->set_contrast(s, x);
+  if (val("sat", -4, 4, x) && s->set_saturation) s->set_saturation(s, x);
+  // Chinh thanh ghi cam bien truc tiep (thu nghiem): /cam?reg=0x3a0f&val=0x60 ; bo val = chi doc.
+  int regAddr = -1, regVal = -1;
+  if (httpd_query_key_value(q, "reg", v, sizeof v) == ESP_OK) {
+    regAddr = (int)strtol(v, nullptr, 0);
+    if (httpd_query_key_value(q, "val", v, sizeof v) == ESP_OK && s->set_reg)
+      s->set_reg(s, regAddr, 0xFF, (int)strtol(v, nullptr, 0) & 0xFF);
+    if (s->get_reg) regVal = s->get_reg(s, regAddr, 0xFF);
+  }
   if (val("sharp", -2, 2, x) && s->set_sharpness) s->set_sharpness(s, x);
   if (val("denoise", 0, 8, x) && s->set_denoise) s->set_denoise(s, x);
   if (val("quality", 4, 40, x) && s->set_quality) s->set_quality(s, x);
@@ -335,16 +348,16 @@ static esp_err_t liveCamHandler(httpd_req_t* req) {
       if (locked) xSemaphoreGive(liveCamLock);
     }
   }
-  char body[300];
+  char body[340];
   snprintf(body, sizeof body,
            "{\"ae\":%d,\"bright\":%d,\"contrast\":%d,\"sat\":%d,\"sharp\":%d,\"denoise\":%d,"
            "\"quality\":%d,\"gain\":%d,\"aec2\":%d,\"size\":\"%s\",\"fps\":%.1f,"
-           "\"spi_mhz\":%lu,\"restarting\":%s}",
+           "\"spi_mhz\":%lu,\"reg\":%d,\"reg_val\":%d,\"restarting\":%s}",
            s->status.ae_level, s->status.brightness, s->status.contrast, s->status.saturation,
            s->status.sharpness, s->status.denoise, s->status.quality, (int)s->status.gainceiling,
            s->status.aec2,
            liveFrameSize == FRAMESIZE_QVGA ? "qvga" : liveFrameSize == FRAMESIZE_HQVGA ? "hqvga" : "qcif",
-           liveStats.fps, (unsigned long)tftSpiMhz(), liveRestartReq ? "true" : "false");
+           liveStats.fps, (unsigned long)tftSpiMhz(), regAddr, regVal, liveRestartReq ? "true" : "false");
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);

@@ -1,4 +1,4 @@
-import { el, requestId } from './api.js?v=dash-a-6';
+import { el, requestId } from './api.js?v=dash-a-7';
 export class DeviceController {
   constructor(api, ui) {
     this.api = api;
@@ -24,9 +24,26 @@ export class DeviceController {
     this.active = value;
     clearTimeout(this.timer);
     if (value) {
+      el('camera-status').textContent = 'Đang kết nối ESP32…';
       this.liveStart();
       this.poll();
     } else this.liveStop();
+  }
+  // Dong trang thai duoi khung camera: noi dung theo viec bo dang lam thuc te.
+  statusText(state, mode) {
+    const hold = state.hold_required || 5;
+    if (!state.online) return 'ESP32 chưa kết nối với máy chủ. Kiểm tra bo đã bật và cùng WiFi.';
+    if (state.capture_pending) return 'Đang chụp và nhận diện…';
+    if (state.view === 'result')
+      return 'Đã có kết quả. Bấm “Nhận diện tiếp” (hoặc SELECT trên bo) để chụp lượt mới.';
+    if (state.control_pending) return 'Đang chờ bo nhận lệnh…';
+    if (mode === 'auto' && state.hold_seconds > 0)
+      return 'AUTO: giữ yên tay trong khung, bo đang đếm ngược để tự chụp.';
+    if (state.running)
+      return mode === 'auto'
+        ? `AUTO: giơ tay vào khung và giữ yên ${hold} giây, bo sẽ tự chụp.`
+        : 'MANUAL: giơ tay vào khung rồi bấm “Chụp ngay” (hoặc SELECT trên bo).';
+    return 'Bo đang ở màn chào. Bấm “Chụp ngay” hoặc SELECT trên bo để bắt đầu.';
   }
   // Live MJPEG tu ESP32, chuyen tiep qua Pi (/api/esp32/live/stream).
   liveStart() {
@@ -97,10 +114,14 @@ export class DeviceController {
       el('mode-' + m).setAttribute('aria-pressed', String(mode === m));
     el('device-capture').disabled = !state.online || !state.can_capture; // chup ngay ca AUTO lan MANUAL
     el('device-replay').disabled = !state.result;
+    const hold = state.hold_required || 5;
+    el('hold-progress').max = hold;
     el('hold-progress').value = state.hold_seconds;
+    el('mode-auto').textContent = `Auto · giữ ${hold} giây`;
+    if (this.active) el('camera-status').textContent = this.statusText(state, mode);
     el('hold-status').textContent =
       state.mode === 'auto' && state.hold_seconds > 0
-        ? `Tự chụp sau ${Math.max(0, 2 - state.hold_seconds)
+        ? `Tự chụp sau ${Math.max(0, hold - state.hold_seconds)
             .toFixed(1)
             .replace('.', ',')} s`
         : '';

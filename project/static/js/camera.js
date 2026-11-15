@@ -1,4 +1,4 @@
-import { el, sleep } from './api.js?v=dash-a-6';
+import { el, sleep, HOLD_SECONDS } from './api.js?v=dash-a-7';
 export class CameraController {
   constructor(jobs, ui) {
     this.jobs = jobs;
@@ -127,16 +127,16 @@ export class CameraController {
   }
   async burst(signal) {
     const start = performance.now();
-    while (performance.now() - start < 2000) {
-      this.ui.progress(Math.min(2, (performance.now() - start) / 1000));
+    while (performance.now() - start < HOLD_SECONDS * 1000) {
+      this.ui.progress(Math.min(HOLD_SECONDS, (performance.now() - start) / 1000));
       await sleep(50, signal);
     }
-    this.ui.progress(2);
+    this.ui.progress(HOLD_SECONDS);
     return { files: [await this.capture(signal)], times: [0] };
   }
   async autoLoop(generation, signal) {
     try {
-      this.ui.status('Căn tay trong 2 giây. Chỉ gửi một ảnh để nhận diện.');
+      this.ui.status(`Căn tay trong ${HOLD_SECONDS} giây. Chỉ gửi một ảnh để nhận diện.`);
       const batch = await this.burst(signal);
       if (generation !== this.generation) return;
       this.busy = true;

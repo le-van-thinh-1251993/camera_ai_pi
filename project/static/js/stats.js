@@ -1,4 +1,4 @@
-import { el } from './api.js?v=dash-a-6';
+import { el } from './api.js?v=dash-a-7';
 
 // Trang Biểu đồ: 3 biểu đồ SVG vẽ tay (không cần thư viện, chạy được khi mất Internet).
 const SVG = 'http://www.w3.org/2000/svg';

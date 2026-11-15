@@ -9,7 +9,7 @@
 //  Hotspot    -> DNS tra moi ten mien ve 192.168.4.1 nen dien thoai tu mo trang.
 //  Trang cau hinh luon co o http://<ip>/ (trong mang) va http://192.168.4.1/
 //  (khi hotspot bat). Mat khau luu trong NVS (Preferences "wifi"), toi da 5 mang.
-//  WIFI_SSID_VALUE trong secrets.h chi la mang mac dinh, thu sau cung.
+//  WIFI_SSID_VALUE trong secrets.h la mang mac dinh, thu dau tien.
 // =====================================================================
 #include <Arduino.h>
 #include <WiFi.h>
@@ -94,15 +94,14 @@ static void wifiLoad() {
   if (!wifiPrefs.getString("server", lanServerHost, sizeof lanServerHost)) lanServerHost[0] = 0;
   wifiPrefs.end();
   Serial.printf("[LAN] May chu: %s\n", lanServerHost[0] ? lanServerHost : "tu tim");
-  // Mang mac dinh trong secrets.h: thu sau cung, khong ghi vao NVS.
+  // Mang mac dinh trong secrets.h: thu DAU TIEN (vua nap code la vao ngay), khong ghi vao NVS.
   if (strlen(WIFI_SSID)) {
-    bool have = false;
-    for (int i = 0; i < wifiNetCount; i++) have |= !strcmp(wifiNets[i].ssid, WIFI_SSID);
-    if (!have) {
-      strlcpy(wifiNets[wifiNetCount].ssid, WIFI_SSID, 33);
-      strlcpy(wifiNets[wifiNetCount].pass, WIFI_PASSWORD, 65);
-      wifiNetCount++;
-    }
+    int at = -1;
+    for (int i = 0; i < wifiNetCount; i++) if (!strcmp(wifiNets[i].ssid, WIFI_SSID)) at = i;
+    if (at < 0) at = wifiNetCount++;
+    for (int i = at; i > 0; i--) wifiNets[i] = wifiNets[i - 1];  // dua len dau danh sach
+    strlcpy(wifiNets[0].ssid, WIFI_SSID, 33);
+    strlcpy(wifiNets[0].pass, WIFI_PASSWORD, 65);
   }
   Serial.printf("[WIFI] %d mang da luu\n", wifiNetCount);
 }
@@ -113,8 +112,8 @@ static void wifiPersist() {
   int n = 0;
   char key[4];
   for (int i = 0; i < wifiNetCount && n < WIFI_MAX_SAVED; i++) {
-    if (!strcmp(wifiNets[i].ssid, WIFI_SSID) && !strcmp(wifiNets[i].pass, WIFI_PASSWORD) && i == wifiNetCount - 1)
-      continue;  // mang mac dinh dung cuoi: khong can luu
+    if (!strcmp(wifiNets[i].ssid, WIFI_SSID) && !strcmp(wifiNets[i].pass, WIFI_PASSWORD))
+      continue;  // mang mac dinh co san trong firmware: khong can luu
     snprintf(key, sizeof key, "s%d", n); wifiPrefs.putString(key, wifiNets[i].ssid);
     snprintf(key, sizeof key, "p%d", n); wifiPrefs.putString(key, wifiNets[i].pass);
     n++;
@@ -334,7 +333,7 @@ svg{flex:none}
 <ul class="saved" id="saved"></ul>
 <p class="hint">Mật khẩu chỉ lưu trong thiết bị, không gửi lên Cloud. Lưu tối đa 5 mạng.</p>
 <div class="lbl">MÁY CHỦ NHẬN DIỆN (PI HOẶC MÁY TÍNH)</div>
-<div class="now"><label for="srv">IP máy chạy server, cổng 8000. Để trống: tự tìm ai-camera.local, rồi thử gateway.</label>
+<div class="now"><label for="srv">IP máy chạy server, cổng 8000. Để trống: tự tìm Pi-AI.local, rồi thử gateway.</label>
 <div style="display:flex;gap:8px;margin-top:8px"><input id="srv" maxlength="39" placeholder="vd 192.168.137.1" autocomplete="off" inputmode="decimal"><button class="btn" id="srv-save" type="button" style="padding:0 16px">Lưu</button></div>
 <p class="hint" id="srv-note" style="margin-top:6px"></p></div>
 </main><script>

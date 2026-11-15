@@ -223,13 +223,23 @@ Có thể thêm Basic Auth của ngrok bằng mẫu `project/examples/ngrok-traf
 
 ## Dọn dữ liệu Cloud
 
-Mặc định worker dọn request **đã hoàn tất/ACK/lỗi** cùng ảnh và ảnh màn hình sau 7 ngày. Mẫu Auto không được xác nhận dọn sau 60 phút. Không xóa pending/processing hay clip giọng dùng chung. Thao tác xóa object dùng Storage API trước khi xóa hàng PostgreSQL; không xóa trực tiếp hàng storage bằng SQL.
+Kết quả trên Supabase là dữ liệu để **thống kê**, nên được giữ tối đa trong giới hạn gói Free
+(500 MB database, 1 GB Storage; mỗi lần nhận diện ≈ 3,5 KB hàng kết quả + ≈ 35 KB ảnh chụp/ảnh màn hình):
 
-Các biến tùy chỉnh trong cấu hình Pi:
+- **Hàng kết quả:** giữ 80.000 lần gần nhất (≈ 300–400 MB). Không còn giới hạn 50 hàng hay 7 ngày.
+- **Ảnh:** giữ ảnh của 24.000 lần gần nhất (≈ 850 MB). Lần cũ hơn chỉ bị xóa ảnh, **hàng kết quả vẫn giữ**
+  (đánh dấu `input.images_pruned=true`).
+- Mẫu Auto không được xác nhận (không phải kết quả) dọn sau 60 phút. Không xóa pending/processing hay clip giọng dùng chung.
+- Free project bị tạm dừng nếu 7 ngày không hoạt động; Pi chạy liên tục nên không bị.
+
+Thao tác xóa object dùng Storage API trước khi xóa hàng PostgreSQL; không xóa trực tiếp hàng storage bằng SQL.
+Các biến tùy chỉnh trong cấu hình Pi (lên gói Pro thì tăng hai số đầu):
 
 ```dotenv
 CLOUD_RETENTION_ENABLED=1
-CLOUD_RETENTION_DAYS=7
+CLOUD_KEEP_ROWS=80000
+CLOUD_KEEP_IMAGES=24000
+CLOUD_RETENTION_DAYS=0
 CLOUD_PROBE_RETENTION_MINUTES=60
 MAX_CROP_RETRIES=4
 ```

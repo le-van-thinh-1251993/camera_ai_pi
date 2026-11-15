@@ -1,10 +1,13 @@
 """Dashboard commands and device reports; persist LAN changes until cloud reconnects."""
 
-import json, re, time, uuid
+import json, os, re, time, uuid
 from datetime import datetime, timezone
 from fastapi import Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+
+# Che do Auto: giu yen tay bao nhieu giay thi bo tu chup (trung AUTO_HOLD_MS trong firmware).
+AUTO_HOLD_SECONDS = int(os.getenv("AUTO_HOLD_SECONDS", "5"))
 
 
 class Command(BaseModel):
@@ -150,7 +153,7 @@ class DeviceControl:
             "capture_pending": control.get("action") == "capture"
             and control.get("id") != state.get("control_id"),
             "hold_seconds": float(state.get("hold", 0)),
-            "hold_required": 2,
+            "hold_required": AUTO_HOLD_SECONDS,
             "frame_seq": int(latest["updated"] * 1000) if latest else -1,
             "can_capture": bool(state.get("has_frame")),
             "result": result["result"] if result else None,

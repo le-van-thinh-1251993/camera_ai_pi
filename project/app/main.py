@@ -17,7 +17,7 @@ load_dotenv(BASE / ".env.cloud", override=False)
 from app.vision_engine import Engine
 from app.cloud_worker import CloudRuntime
 from app.cloud_web import attach_cloud_web
-from app.cloud_control import attach_cloud_control
+from app.cloud_control import AUTO_HOLD_SECONDS, attach_cloud_control
 from app.lan_web import attach_lan_web
 from app.lan_discovery import start_discovery
 from app.esp32_live import attach_esp32_live, note_device_ip
@@ -259,7 +259,7 @@ async def diagnostics():
         "mediapipe": mediapipe.__version__,
         "opencv": cv2.__version__,
         "cloud": rt.state,
-        "hold_seconds": 2,
+        "hold_seconds": AUTO_HOLD_SECONDS,
         "pipeline": 6,
     }
 
