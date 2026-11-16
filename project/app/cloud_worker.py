@@ -14,6 +14,7 @@ from app.local_jobs import LocalJobs
 from app.cloud_protocol import validate_input, auto_decision, is_permanent
 from app.cloud_retention import CloudRetention
 from app.screen_renderer import screen_jpeg
+from app.ai_client import AiClient
 
 log = logging.getLogger("ai-camera.cloud")
 
@@ -74,6 +75,7 @@ class CloudRuntime:
 
         self.controls = DeviceControl(self)
         self.retention = CloudRetention(self)
+        self.ai = AiClient(self.data)
         self.outbox_retry_after = {}
         self.greeting_uploaded = False
         self.greeting_retry_after = 0.0
@@ -85,6 +87,26 @@ class CloudRuntime:
         self.active_until = time.monotonic() + 60
         self.wake.set()
         self.control_wake.set()
+
+    async def speak(self, event, options, image):
+        """Giọng đọc cho kết quả đã xác nhận.
+
+        Chế độ AI (options["ai"]) + đếm được 1-10: module AI nghĩ câu ý nghĩa và đọc.
+        Module tắt/lỗi hoặc không đếm được: câu cố định + file ghi âm như cũ.
+        """
+        if options.get("ai") and event.get("finger_count"):
+            preview = self.jobs.root / (event["id"] + ".preview.jpg")
+            picture = preview.read_bytes() if preview.is_file() else image
+            ai = await self.ai.meaning(
+                event["id"], event["finger_count"], options.get("source"), picture
+            )
+            if ai:
+                event.update(text=ai["text"], audio_url=ai["audio_url"], tts="ai", ai=ai["meta"])
+                return
+            event["ai"] = {"status": "fallback", "error": self.ai.last_error}
+        elif options.get("ai"):
+            event["ai"] = {"status": "skipped", "error": "no_count"}
+        event["audio_url"], event["tts"] = await self.voice(event["gesture"])
 
     def cache_completed(self, event):
         self.completed[event["id"]] = event
@@ -135,7 +157,7 @@ class CloudRuntime:
                 text=unknown_text(),
             )
         if final:
-            event["audio_url"], event["tts"] = await self.voice(event["gesture"])
+            await self.speak(event, options, images[0][1])
         else:
             event.update(audio_url=None, tts="not-confirmed")
         if options.get("source") == "esp32" and event["confirmed"]:
@@ -262,7 +284,7 @@ class CloudRuntime:
                         text=unknown_text(),
                     )
                 if final:
-                    event["audio_url"], event["tts"] = await self.voice(event["gesture"])
+                    await self.speak(event, options, raw)
                 else:
                     event.update(audio_url=None, tts="not-confirmed")
                 if options.get("source") == "esp32" or not options.get("source"):

@@ -51,6 +51,7 @@ def attach_lan_web(app):
                 "frames": [{"path": f"{owner}/{rid}.jpg", "ms": 0}],
                 "count_all": request.headers.get("X-Count-All", "").lower() == "true",
                 "retry_index": max(0, min(4, int(request.headers.get("X-Retry-Index", "0")))),
+                "ai": request.headers.get("X-AI-Mode", "") == "1",
             }
             event = await rt.process_local_job(
                 rid, device, owner, [(options["frames"][0]["path"], raw, "image/jpeg")], options

@@ -133,10 +133,10 @@ class CloudTransport {
   }
   bool lanRecognize(const String &device, const String &id, const uint8_t *data,
                     size_t length, bool automatic, bool countAll, unsigned retry,
-                    JsonDocument &result) {
+                    JsonDocument &result, bool ai = false) {
     HTTPClient local;
     local.setConnectTimeout(1200);
-    local.setTimeout(12000);
+    local.setTimeout(ai ? 25000 : 12000);
     IPAddress host = resolveLanHost();
     if (!host) return false;
     String url = "http://" + host.toString() + ":" + String(LAN_PORT) +
@@ -145,6 +145,7 @@ class CloudTransport {
     local.addHeader("X-LAN-Key", LAN_API_KEY_VALUE);
     local.addHeader("X-Request-ID", id);
     local.addHeader("X-Capture-Mode", automatic ? "auto" : "manual");
+    local.addHeader("X-AI-Mode", ai ? "1" : "0");
     local.addHeader("X-Count-All", countAll ? "true" : "false");
     local.addHeader("X-Retry-Index", String(retry));
     local.addHeader("Content-Type", "image/jpeg");

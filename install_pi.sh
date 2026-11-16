@@ -59,6 +59,42 @@ else
   echo "Không tìm thấy ngrok; dashboard local vẫn tự khởi động. Cài ngrok rồi chạy lại installer để bật tunnel tự động."
 fi
 
+# Module AI độc lập (ai_module): venv riêng ~/ai-camera/.venv-ai, cấu hình ~/ai-camera-release/.env.ai.
+# Chỉ bật service khi .env.ai đã có GEMINI_API_KEY. AI_SERVICE=0 để bỏ qua hẳn.
+AI_SERVICE="${AI_SERVICE:-auto}"
+AI_PY="$HOME/ai-camera/.venv-ai/bin/python"
+if [[ "$AI_SERVICE" != "0" ]]; then
+  if [[ ! -f "$ROOT/.env.ai" ]]; then
+    install -m 600 "$ROOT/.env.ai.example" "$ROOT/.env.ai"
+    echo "Đã tạo $ROOT/.env.ai - mở file này và điền GEMINI_API_KEY."
+  fi
+  chmod 600 "$ROOT/.env.ai"
+  if ! command -v ffmpeg >/dev/null 2>&1; then sudo apt-get install -y ffmpeg; fi
+  if [[ ! -x "$AI_PY" ]]; then python3 -m venv "$HOME/ai-camera/.venv-ai"; fi
+  if ! "$AI_PY" -c 'import fastapi,uvicorn,dotenv,httpx,PIL,edge_tts' >/dev/null 2>&1; then
+    "$AI_PY" -m pip install -r "$ROOT/ai_module/requirements.txt"
+  fi
+  "$PY" - "$ROOT" "$AI_PY" "$(id -un)" <<'PY'
+import sys
+from pathlib import Path
+root,python,user=sys.argv[1:]
+text=(Path(root)/'systemd/ai-camera-ai.service.in').read_text()
+text=text.replace('@USER@',user).replace('@ROOT@',root).replace('@AIPYTHON@',python)
+(Path(root)/'systemd/ai-camera-ai.service').write_text(text)
+PY
+  sudo cp "$ROOT/systemd/ai-camera-ai.service" /etc/systemd/system/ai-camera-ai.service
+  sudo systemctl daemon-reload
+  if grep -Eq '^\s*GEMINI_API_KEY\s*=\s*\S' "$ROOT/.env.ai"; then
+    sudo systemctl enable ai-camera-ai.service
+    sudo systemctl restart ai-camera-ai.service
+    echo "Module AI đã bật (ai-camera-ai.service, 127.0.0.1:8010)."
+  else
+    sudo systemctl disable --now ai-camera-ai.service 2>/dev/null || true
+    echo "Module AI chưa bật: điền GEMINI_API_KEY vào $ROOT/.env.ai rồi chạy:"
+    echo "  sudo systemctl enable --now ai-camera-ai"
+  fi
+fi
+
 # Màn ST7789 trạng thái (scripts/pi_lcd.py): chỉ bật khi SPI đã bật (/dev/spidev0.0).
 # LCD_SERVICE=0 để bỏ qua, LCD_SERVICE=1 để bắt buộc cài dù chưa thấy SPI.
 LCD_SERVICE="${LCD_SERVICE:-auto}"

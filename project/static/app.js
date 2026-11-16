@@ -1,11 +1,11 @@
-import { Api, el, HOLD_SECONDS, setHoldSeconds } from './js/api.js?v=dash-a-7';
-import { CloudJobs } from './js/cloud.js?v=dash-a-7';
-import { AudioPlayer } from './js/audio.js?v=dash-a-7';
-import { CameraController } from './js/camera.js?v=dash-a-7';
-import { UploadController } from './js/upload.js?v=dash-a-7';
-import { DeviceController } from './js/device.js?v=dash-a-7';
-import { watchEvents } from './js/events.js?v=dash-a-7';
-import { StatsView } from './js/stats.js?v=dash-a-7';
+import { Api, el, HOLD_SECONDS, setHoldSeconds } from './js/api.js?v=dash-a-8';
+import { CloudJobs } from './js/cloud.js?v=dash-a-8';
+import { AudioPlayer } from './js/audio.js?v=dash-a-8';
+import { CameraController } from './js/camera.js?v=dash-a-8';
+import { UploadController } from './js/upload.js?v=dash-a-8';
+import { DeviceController } from './js/device.js?v=dash-a-8';
+import { watchEvents } from './js/events.js?v=dash-a-8';
+import { StatsView } from './js/stats.js?v=dash-a-8';
 
 const api = new Api();
 let current = null,
@@ -79,6 +79,7 @@ function clear() {
   error('');
   el('gesture').textContent = '—';
   el('gesture').classList.remove('unknown');
+  el('ai-badge').hidden = true;
   el('phrase').textContent =
     mode === 'upload'
       ? 'Tải ảnh bàn tay lên rồi bấm “Gửi nhận diện”.'
@@ -148,9 +149,18 @@ async function result(event, speak = true) {
     .map((h, i) => `Tay ${i + 1}: ${h.finger_count ?? 'chưa rõ'} ngón`)
     .join(' · ');
   el('confidence').textContent = 'Cách nhận diện: điểm bàn tay MediaPipe';
-  el('speech-status').textContent = event.audio_url
-    ? 'Giọng đọc từ clip đã thu.'
-    : 'Chưa có clip âm thanh.';
+  const ai = event.ai || {};
+  el('ai-badge').hidden = ai.status !== 'ok';
+  el('speech-status').textContent =
+    ai.status === 'ok'
+      ? ai.replay
+        ? `✨ AI phát lại câu đã lưu (${ai.model || 'Gemini'}), không gọi Gemini lần này.`
+        : `✨ AI (${ai.model || 'Gemini'}) tự nghĩ câu và đọc · ${((ai.latency_ms || 0) / 1000).toFixed(1)} s`
+      : ai.status === 'fallback'
+        ? `AI chưa phản hồi (${ai.error || 'lỗi'}), dùng câu mặc định.`
+        : event.audio_url
+          ? 'Giọng đọc từ clip đã thu.'
+          : 'Chưa có clip âm thanh.';
   el('resume-round').hidden = mode !== 'camera';
   if (mode === 'camera') {
     holdIdle();
@@ -239,8 +249,8 @@ function syncSource() {
   if (name === 'phone') syncMode(el('phone-mode').value);
 }
 function syncMode(value) {
-  el('mode-auto').setAttribute('aria-pressed', String(value === 'auto'));
-  el('mode-manual').setAttribute('aria-pressed', String(value === 'manual'));
+  for (const m of ['auto', 'manual', 'ai'])
+    el('mode-' + m).setAttribute('aria-pressed', String(value === m));
 }
 function source() {
   camera.stop();
@@ -355,7 +365,7 @@ el('upload-clear').onclick = () => {
 el('focus-select').onclick = () => upload.toggle();
 el('photo').onclick = (event) => upload.click(event);
 for (const name of ['esp32', 'phone', 'upload']) el('src-' + name).onclick = () => pickSource(name);
-for (const value of ['auto', 'manual']) el('mode-' + value).onclick = () => pickMode(value);
+for (const value of ['auto', 'manual', 'ai']) el('mode-' + value).onclick = () => pickMode(value);
 el('camera-start').onclick = () => camera.start();
 el('camera-stop').onclick = () => camera.stop();
 el('phone-freeze').onclick = () => camera.toggleFreeze();

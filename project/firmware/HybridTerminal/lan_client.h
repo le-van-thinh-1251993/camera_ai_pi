@@ -193,16 +193,17 @@ class LanClient {
   }
 
   bool recognize(const String& device, const String& id, const uint8_t* jpeg, size_t length,
-                 bool automatic, JsonDocument& result) {
+                 bool automatic, JsonDocument& result, bool ai = false) {
     lastStatus = 0;
     String target = url("/api/lan/device/" + device + "/recognize");
     if (!target.length()) { lastStatus = -10; return false; }  // khong tim thay Pi
     HTTPClient http;
     http.setConnectTimeout(1500);
-    http.setTimeout(15000);
+    http.setTimeout(ai ? 25000 : 15000);  // AI: Gemini + giong doc toi da ~10 s tren Pi
     if (!http.begin(socket, target)) return false;
     http.addHeader("X-LAN-Key", LAN_API_KEY_VALUE);
     http.addHeader("X-Request-ID", id);
+    http.addHeader("X-AI-Mode", ai ? "1" : "0");
     http.addHeader("X-Capture-Mode", automatic ? "auto" : "manual");
     http.addHeader("X-Count-All", "false");
     http.addHeader("X-Retry-Index", "0");

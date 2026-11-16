@@ -1,4 +1,4 @@
-import { el, sleep, HOLD_SECONDS } from './api.js?v=dash-a-7';
+import { el, sleep, HOLD_SECONDS } from './api.js?v=dash-a-8';
 export class CameraController {
   constructor(jobs, ui) {
     this.jobs = jobs;
@@ -90,7 +90,7 @@ export class CameraController {
             this.ui.error('Camera đã ngắt kết nối.');
           }
         });
-      if (el('phone-mode').value === 'auto') this.autoLoop(generation, this.abort.signal);
+      if (el('phone-mode').value !== 'manual') this.autoLoop(generation, this.abort.signal);
       else this.ui.status('Manual: căn tay, dừng hình nếu cần, rồi bấm Nhận diện.');
     } catch (error) {
       if (generation === this.generation) {
@@ -136,7 +136,12 @@ export class CameraController {
   }
   async autoLoop(generation, signal) {
     try {
-      this.ui.status(`Căn tay trong ${HOLD_SECONDS} giây. Chỉ gửi một ảnh để nhận diện.`);
+      const ai = el('phone-mode').value === 'ai';
+      this.ui.status(
+        ai
+          ? `✨ AI: căn tay trong ${HOLD_SECONDS} giây. Ảnh được gửi sang Gemini để nghĩ câu.`
+          : `Căn tay trong ${HOLD_SECONDS} giây. Chỉ gửi một ảnh để nhận diện.`,
+      );
       const batch = await this.burst(signal);
       if (generation !== this.generation) return;
       this.busy = true;
@@ -150,6 +155,7 @@ export class CameraController {
           captureMode: 'auto',
           times: [0],
           countAll: el('count-all').checked,
+          ai,
         },
         signal,
       );

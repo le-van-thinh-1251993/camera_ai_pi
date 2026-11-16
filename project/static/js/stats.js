@@ -1,4 +1,4 @@
-import { el } from './api.js?v=dash-a-7';
+import { el } from './api.js?v=dash-a-8';
 
 // Trang Biểu đồ: 3 biểu đồ SVG vẽ tay (không cần thư viện, chạy được khi mất Internet).
 const SVG = 'http://www.w3.org/2000/svg';
@@ -97,13 +97,17 @@ export class StatsView {
     try {
       this.data = await this.api.json('/api/stats?range=' + this.range);
       this.render();
+      const ai = this.data.ai || { ok: 0, fallback: 0 };
       el('stats-updated').textContent =
         'Trực tiếp · cập nhật ' +
         new Date().toLocaleTimeString('vi-VN', {
           hour: '2-digit',
           minute: '2-digit',
           second: '2-digit',
-        });
+        }) +
+        (ai.ok || ai.fallback
+          ? ` · ✨ AI: ${ai.ok} lần${ai.fallback ? `, ${ai.fallback} lần dùng câu mặc định` : ''}`
+          : '');
       el('stats-updated').dataset.state = 'ok';
     } catch (error) {
       el('stats-updated').textContent = 'Không tải được thống kê: ' + error.message;

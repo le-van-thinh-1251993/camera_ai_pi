@@ -51,7 +51,7 @@ def install(bundle, root):
             or path.suffix == ".pyc"
         ):
             continue
-        if path.name in (".env", ".env.cloud", "secrets.h"):
+        if path.name in (".env", ".env.cloud", ".env.ai", "secrets.h"):
             continue
         target = (root / rel).resolve()
         if not target.is_relative_to(root):
@@ -84,6 +84,9 @@ def install(bundle, root):
     text, count = re.subn(r"(?m)^\s*CLOUD_ENABLED\s*=.*$", "CLOUD_ENABLED=1", text)
     if not count:
         text = text.rstrip() + "\nCLOUD_ENABLED=1\n"
+    # Core goi module AI qua cong noi bo; module tat thi core tu dung cau co dinh.
+    if not re.search(r"(?m)^\s*AI_MODULE_URL\s*=", text):
+        text = text.rstrip() + "\nAI_MODULE_URL=http://127.0.0.1:8010\n"
     if not env.exists() or env.read_text(encoding="utf-8") != text:
         changes[env] = text.encode("utf-8")
     if not (root / ".env.cloud").exists() and bundled_cloud.is_file():

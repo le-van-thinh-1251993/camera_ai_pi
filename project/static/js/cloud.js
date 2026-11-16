@@ -1,4 +1,4 @@
-import { requestId, sleep } from './api.js?v=dash-a-7';
+import { requestId, sleep } from './api.js?v=dash-a-8';
 export class CloudJobs {
   constructor(api, status) {
     this.api = api;
@@ -17,6 +17,7 @@ export class CloudJobs {
       count_all: String(Boolean(options.countAll)),
       focus: JSON.stringify(options.focus || null),
       retry_index: String(options.attempt || 0),
+      ai: String(Boolean(options.ai)),
     }))
       data.append(key, value);
     this.status('Đang gửi ảnh lên Supabase…');

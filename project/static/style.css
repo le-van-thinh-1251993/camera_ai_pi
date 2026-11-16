@@ -419,6 +419,18 @@ summary:focus-visible {
 .meaning-label {
   margin-top: 8px;
 }
+.ai-badge {
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  letter-spacing: 0;
+  font-weight: 700;
+}
+.ai-badge[hidden] {
+  display: none;
+}
 #result-content {
   display: flex;
   flex-direction: column;

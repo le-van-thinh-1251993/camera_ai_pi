@@ -82,6 +82,7 @@ def attach_cloud_web(app, auth):
                 "focus": focus,
                 "count_all": str(form.get("count_all", "false")).lower() == "true",
                 "retry_index": max(0, min(4, int(form.get("retry_index", "0")))),
+                "ai": str(form.get("ai", "false")).lower() == "true",
             }
             images = []
             limit = (

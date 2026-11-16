@@ -198,6 +198,28 @@ static bool validatePins() {
   for(int pin:{BTN_POWER,BTN_NEXT,BTN_VOLUME_UP,BTN_VOLUME_DOWN,BTN_MANUAL}) add(pin,false,false);
   return ok;
 }
+// LED RGB WS2812 tren bo nam o GPIO48 = chan TFT DC. Luc lcd.init() chan DC dao lien tuc nen LED
+// chot nham mot mau va sang choi mai (no chi doi mau khi chan o muc thap > ~280 us, luc ve binh
+// thuong DC gan nhu khong bao gio thap lau nhu vay). Cach tat: khi man ranh va CS dang cao (man bo
+// qua DC), gui 1 khung "den" WS2812 tren GPIO48 roi tra chan ve GPIO thuong cho LovyanGFX.
+// Chi lam duoc khi CS noi GPIO (TFT_CS >= 0); CS noi GND thi man se doc nham khung nay.
+static constexpr int RGB_LED_GPIO = 48;
+static void rgbLedOffSharedDc() {
+#if TFT_KIND && !SHARED_CAM_TFT_BUS
+  if (TFT_DC != RGB_LED_GPIO || TFT_CS < 0) return;
+  lcd.waitDisplay();                // het giao dich SPI -> CS cao
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  rgbLedWrite(RGB_LED_GPIO, 0, 0, 0);
+#else
+  neopixelWrite(RGB_LED_GPIO, 0, 0, 0);  // core 2.x
+#endif
+  delayMicroseconds(400);           // giu thap > 280 us de LED chot mau den
+  pinMode(TFT_DC, OUTPUT);          // go RMT, tra chan ve GPIO cho LovyanGFX dieu khien DC
+  digitalWrite(TFT_DC, HIGH);
+  Serial.println("[LED] Da tat LED RGB GPIO48 (chung TFT DC)");
+#endif
+}
+
 static bool beginHardware() {
   if(!validatePins()) {Serial.println("CONFIG ERROR: missing/duplicate/invalid GPIO or panel dimensions; hardware not started.");return false;}
 #if TFT_KIND
@@ -217,6 +239,7 @@ static bool beginHardware() {
     lcd.startWrite();lcd.writeCommand(0x00);lcd.writeCommand(0x01);lcd.endWrite();delay(150);lcd.init();
   }
   lcd.setRotation(TFT_ROTATION);lcd.fillScreen(0);
+  rgbLedOffSharedDc();
   lcd.setWriteHz(tftWriteHz);  // co hieu luc tu giao dich SPI ke tiep
   lcdReady=true;
   if(TFT_BL>=0){pinMode(TFT_BL,OUTPUT);digitalWrite(TFT_BL,TFT_BL_ACTIVE_HIGH?HIGH:LOW);}

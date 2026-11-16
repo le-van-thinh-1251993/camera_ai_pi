@@ -1,4 +1,4 @@
-import { el } from './api.js?v=dash-a-7';
+import { el } from './api.js?v=dash-a-8';
 
 async function optimizeImage(file) {
   let bitmap;
@@ -119,7 +119,13 @@ export class UploadController {
       const optimized = await optimizeImage(file);
       const result = await this.jobs.submit(
         [optimized],
-        { source: 'upload', mode: 'upload', focus: this.focus, countAll: el('count-all').checked },
+        {
+          source: 'upload',
+          mode: 'upload',
+          focus: this.focus,
+          countAll: el('count-all').checked,
+          ai: el('upload-ai').checked,
+        },
         this.abort.signal,
       );
       if (generation === this.generation) await this.ui.result(result);

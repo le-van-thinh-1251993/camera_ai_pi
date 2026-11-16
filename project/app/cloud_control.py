@@ -75,7 +75,7 @@ class DeviceControl:
             )
 
     def command(self, name, action, request_id, count_all=False):
-        allowed = {"auto", "manual", "start", "stop", "capture", "home", "replay", "greeting"}
+        allowed = {"auto", "manual", "ai", "start", "stop", "capture", "home", "replay", "greeting"}
         if action not in allowed or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", request_id):
             raise ValueError("Lệnh không hợp lệ")
         row = self.get(name)

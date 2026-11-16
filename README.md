@@ -23,12 +23,13 @@ ESP32 ──(Cloud: Supabase RPC/Storage)──► Supabase ◄── worker tr�
 | --- | --- |
 | `install_pi.sh`, `install.py` | Installer/rollback trên Pi |
 | `migrations/` | SQL Supabase 001–004 |
-| `project/app/` | Server, worker Cloud, fallback LAN, retention, TTS |
+| `project/app/` | Server, worker Cloud, fallback LAN, retention, TTS, `ai_client.py` (gọi module AI) |
+| `project/ai_module/` | **Module AI độc lập**: Gemini nghĩ câu ý nghĩa + giọng đọc Edge TTS (service riêng) |
 | `project/static/` | Dashboard (JS tách module: camera, upload, cloud, audio, device, events, stats) |
 | `project/firmware/HybridTerminal/` | Firmware ESP32 duy nhất |
 | `project/firmware/TftPinTest/` | Sketch thử chân/tốc độ TFT |
 | `project/scripts/` | `pi_lcd.py`, `verify_cloud.py`, `diagnose_cloud.py`, `dashboard_key.py`, `make_tft_assets.py`, `import_voice.py`… |
-| `project/systemd/` | Mẫu service `ai-camera`, `ai-camera-ngrok`, `ai-camera-lcd` |
+| `project/systemd/` | Mẫu service `ai-camera`, `ai-camera-ngrok`, `ai-camera-lcd`, `ai-camera-ai` |
 | `anh bo mach/` | Ảnh bo mạch thật + `Bang_Ket_Noi_Module_Schematic.xlsx` (bảng nối chân) |
 | `voice/voice.rar` | Bộ giọng gốc; `doi-cau-noi-va-voice.patch` là patch đổi câu nói |
 | `VALIDATION.md`, `REVIEW_FIXES.md`, `reports/` | Kết quả kiểm thử và giới hạn |
@@ -197,11 +198,12 @@ Lưu tối đa 5 mạng trong NVS (mạng mặc định của `secrets.h` không
 - **Live:** khung camera 320×240 bên trái, cột phải có thẻ **Kết quả** (nhãn ● LIVE) và **Ý nghĩa**, footer hiện chế độ/chức năng SELECT/âm lượng. Khởi động ở **MANUAL**.
   - **MANUAL:** giơ tay vào khung rồi nhấn SELECT để chụp.
   - **AUTO:** giữ yên tay **5 giây** rồi tự chụp và gửi.
+  - **AI:** như AUTO, nhưng Gemini tự nghĩ câu ý nghĩa và loa đọc câu đó (xem mục *Chế độ AI*).
 - **Kết quả:** ảnh vừa chụp đứng yên, số ngón và câu ý nghĩa, loa đọc câu; sau 8 giây (`AUTO_NEXT_ROUND_MS`) quay lại live, thẻ đổi thành “LẦN TRƯỚC”.
 
 | Nút | GPIO | Chức năng |
 | --- | --- | --- |
-| BACK1 | 47 | Đổi AUTO / MANUAL |
+| BACK1 | 47 | Đổi vòng MANUAL → AUTO → AI |
 | SELECT1 | 21 | Bắt đầu · chụp (MANUAL) · chụp ngay (AUTO) · live tiếp |
 | DOWN1 | 3 | Tăng âm lượng |
 | UP1 | 14 | Giảm âm lượng |
@@ -209,11 +211,34 @@ Lưu tối đa 5 mạng trong NVS (mạng mặc định của `secrets.h` không
 
 Âm lượng được lưu trong NVS (`audio`: `vol`, `prev`) nên khởi động lại vẫn giữ.
 
-Serial Monitor (115200): `b s + -` giả lập 4 nút, `i` in FPS và thời gian chụp/vẽ, `w` mở hotspot WiFi, `r` đồng bộ lại TFT.
+Serial Monitor (115200): `b s + -` giả lập 4 nút, `i` in FPS và thời gian chụp/vẽ, `w` mở hotspot WiFi, `r` đồng bộ lại TFT, `l` thử tắt LED RGB GPIO48.
 
 Font Noto Sans (SIL OFL) và lời chào nhúng vào firmware bằng `python scripts/make_tft_assets.py` (tạo `fonts_vi.h`, `welcome_audio.h`). Đổi lời chào: `python scripts/make_tft_assets.py --skip-fonts --wav <file.wav>` (WAV mono 16-bit, 8–48 kHz).
 
 Auto gửi một JPEG sau khi đếm ngược, không ghi LittleFS/NVS cho mẫu chưa xác nhận. Chỉ lưu UUID Manual đã gửi lên Cloud (để phục hồi sau reboot), mã kết quả đã tiêu thụ và ACK cuối. Loa phát tối đa một lần mỗi UUID; dùng Replay khi cần. Firmware tái sử dụng TLS socket, gộp báo trạng thái/đọc lệnh trong một RPC, giảm polling khi rảnh, và timeout khi không có khung camera thay vì kẹt vòng Auto.
+
+## Chế độ AI (Gemini)
+
+Module AI chạy **riêng** (`project/ai_module`, service `ai-camera-ai`, chỉ nghe `127.0.0.1:8010`, venv riêng `~/ai-camera/.venv-ai`). Core chỉ biết `AI_MODULE_URL`; module tắt, lỗi, mất Internet hay hết hạn mức thì core tự dùng câu cố định + file ghi âm như cũ.
+
+```text
+Giơ tay → bo/điện thoại chụp → Pi: MediaPipe đếm ngón (vd 3)
+  → ai_module: gửi ảnh (thu nhỏ 768 px) + số ngón cho Gemini → câu ý nghĩa ≤ 100 ký tự
+  → Gemini TTS (dự phòng Edge TTS) → WAV → TFT hiện câu, loa đọc; dashboard gắn nhãn "✨ AI tự nghĩ"
+```
+
+- **Bật chế độ AI:** trên bo bấm BACK tới **AI**; dashboard bấm **✨ AI** (ESP32 hoặc camera điện thoại); ảnh tải lên: tick *✨ Ảnh tải lên: AI tự nghĩ ý nghĩa* trong Cài đặt.
+- AI chỉ chạy khi đếm được 1–10 ngón; "chưa nhận diện" vẫn dùng câu cố định.
+- **Cấu hình:** `~/ai-camera-release/.env.ai` trên Pi (installer tạo từ `.env.ai.example`, quyền 600, không bao giờ bị ghi đè hay commit). Điền `GEMINI_API_KEY` rồi `sudo systemctl enable --now ai-camera-ai`. Các biến khác: `GEMINI_MODEL`, `AI_STYLE`, `AI_MAX_CHARS`, `AI_DAILY_LIMIT`, `AI_SEND_IMAGE`, `AI_VOICE`.
+- **Model:** chính `gemini-3.5-flash` (mức suy nghĩ `low`, đo thật ~2,2–2,4 s), dự phòng `gemini-3.5-flash-lite` (~1,4 s) khi model chính hết lượt, quá giờ (`GEMINI_TIMEOUT=6`), lỗi mạng hoặc sai tên model. Lỗi key/bị chặn nội dung thì không thử lại. Điền **mã model** (vd `gemini-3.5-flash`), không phải tên hiển thị; không dùng model `*-tts`/`*-image`. `/health` báo cảnh báo nếu điền sai loại.
+- **Giọng đọc: nữ miền Bắc**, khớp với các file ghi âm sẵn có. Gemini TTS giọng `Kore` + lời dặn `GEMINI_TTS_STYLE="Giọng nữ Hà Nội, nói nhanh, liền mạch"` (không bị đọc ra). Thử lần lượt `gemini-3.8-flash-tts` → `gemini-3.1-flash-tts-preview` → Edge `vi-VN-HoaiMyNeural` (cũng nữ miền Bắc). Đo thật 11/2026 (Gemini tự nghe và chấm): cả hai model Gemini = nữ, miền Bắc, tự nhiên 10/10. **Không dùng** `gemini-3.8-flash-lite-tts` (đọc luôn cả lời dặn); bỏ lời dặn thì Kore thành giọng miền Nam. Edge chỉ thành công 3/12 lần nên chỉ làm dự phòng. WAV quá 500 KB tự hạ xuống 16 kHz.
+- **Hạn mức:** gói Free của Gemini tính **theo ngày, từng model** (đo thật: `gemini-3.5-flash` 20 lượt, `gemini-3.8-flash-tts` 10 lượt). Model trả 429 được nhớ và bỏ qua tới lúc reset, chuyển ngay sang model kế tiếp. Dùng thật (nhiều lượt/ngày) cần **bật billing** cho project Gemini; gói trả phí cũng không dùng ảnh gửi lên để huấn luyện.
+- **Phát lại (test không tốn lượt):** mỗi lần chạy thật thành công, câu + giọng được lưu vào thư viện theo số ngón (`data/ai/library/`, tối đa 30 câu mỗi số). `AI_PROVIDER=replay` trong `.env.ai` → không gọi Google, không cần key, lấy ngẫu nhiên câu đã lưu (~0,6 s; `AI_REPLAY_DELAY=3` nếu muốn giống thời gian thật). `AI_REPLAY_FALLBACK=1` (mặc định): lúc demo mà Gemini hết lượt/lỗi thì phát lại câu đã lưu thay vì câu cố định. Số câu đã có: `curl -s 127.0.0.1:8010/health` (mục `library`). Dashboard ghi rõ "phát lại câu đã lưu". Đổi chế độ xong: `sudo systemctl restart ai-camera-ai`.
+- Đã thử Piper (TTS offline, miễn phí): chưa có giọng tiếng Việt nào vừa nữ miền Bắc vừa đọc đúng thanh điệu (`vais1000` đọc đúng nhưng nghe ra giọng nam; `25hours_single`, `vivos` sai dấu) nên chưa dùng.
+- Core: `AI_MODULE_URL=http://127.0.0.1:8010` (installer tự thêm), `AI_TIMEOUT=20` (model chính + dự phòng + giọng đọc). Chạy thật: ESP32 chế độ AI ~6,5 s từ lúc gửi ảnh tới khi có câu + giọng.
+- Kiểm tra: `curl -s 127.0.0.1:8010/health` (có key chưa, model, lượt đã dùng hôm nay) và `curl -s 127.0.0.1:8010/v1/recent` (20 lần gọi gần nhất, không lưu ảnh).
+- **Riêng tư:** chế độ AI gửi ảnh sang Google. Prompt cấm nhận xét danh tính, tuổi, giới tính, ngoại hình. Ảnh có người thì nên dùng gói Gemini trả phí (gói Free có thể dùng dữ liệu để cải thiện sản phẩm).
+- Chạy thử trên Windows: điền key vào `project/.env.ai`, `pip install -r ai_module/requirements.txt` + ffmpeg, rồi `python -m ai_module` trong thư mục `project`.
 
 ## Xác thực và ngrok
 

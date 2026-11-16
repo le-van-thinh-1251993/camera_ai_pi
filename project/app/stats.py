@@ -46,6 +46,7 @@ def compute_stats(events, range_name="today", now=None):
     totals = dict.fromkeys(OUTCOMES, 0)
     by_source = {name: dict.fromkeys(OUTCOMES, 0) for name in SOURCES}
     latency = []
+    ai = {"ok": 0, "fallback": 0}
     for event in events:
         if event.get("pipeline_version") == 6 and not event.get("confirmed"):
             continue
@@ -55,6 +56,11 @@ def compute_stats(events, range_name="today", now=None):
         kind, src = outcome(event), source(event)
         totals[kind] += 1
         by_source[src][kind] += 1
+        status = (event.get("ai") or {}).get("status")
+        if status == "ok":
+            ai["ok"] += 1
+        elif status in ("fallback", "skipped"):
+            ai["fallback"] += 1
         if event.get("latency_ms") is not None and when is not None:
             latency.append(
                 {
@@ -72,4 +78,5 @@ def compute_stats(events, range_name="today", now=None):
         "outcomes": totals,
         "by_source": by_source,
         "latency": latency[-LATENCY_POINTS:],
+        "ai": ai,
     }

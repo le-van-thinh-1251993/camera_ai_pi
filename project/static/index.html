@@ -9,7 +9,7 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap"
     />
-    <link rel="stylesheet" href="/static/style.css?v=dash-a-7" />
+    <link rel="stylesheet" href="/static/style.css?v=dash-a-8" />
   </head>
   <body>
     <header class="top">
@@ -73,7 +73,10 @@
         <div class="controls camera-only">
           <div class="segmented" role="group" aria-label="Chế độ chụp">
             <button id="mode-auto" type="button" aria-pressed="true">Auto · giữ 5 giây</button
-            ><button id="mode-manual" type="button" aria-pressed="false">Manual</button>
+            ><button id="mode-manual" type="button" aria-pressed="false">Manual</button
+            ><button id="mode-ai" type="button" aria-pressed="false" title="Giữ tay như Auto; AI Gemini tự nghĩ câu ý nghĩa và đọc">
+              ✨ AI
+            </button>
           </div>
           <span id="device-controls" class="esp32-only">
             <button id="device-capture" type="button">Chụp ngay</button>
@@ -121,7 +124,9 @@
           <div id="result-content" aria-live="polite" aria-atomic="true">
             <div class="label">KẾT QUẢ</div>
             <div id="gesture">—</div>
-            <div class="label meaning-label">Ý NGHĨA</div>
+            <div class="label meaning-label">
+              Ý NGHĨA <span id="ai-badge" class="ai-badge" hidden>✨ AI tự nghĩ</span>
+            </div>
             <h2 id="phrase">Đưa tay vào khung camera hoặc tải ảnh lên để bắt đầu.</h2>
           </div>
           <div class="audio-controls">
@@ -253,6 +258,10 @@
         <label class="check"
           ><input id="count-all" type="checkbox" /> Cộng tất cả tay nhìn thấy (đếm 6–10 ngón)</label
         >
+        <label class="check"
+          ><input id="upload-ai" type="checkbox" /> ✨ Ảnh tải lên: AI tự nghĩ ý nghĩa</label
+        >
+        <p class="hint">Chế độ AI gửi ảnh sang Google Gemini để nghĩ câu ý nghĩa.</p>
         <label for="phone-facing">Camera của máy này</label>
         <select id="phone-facing">
           <option value="environment">Camera sau</option>
@@ -276,8 +285,9 @@
       <select id="phone-mode" hidden>
         <option value="auto">auto</option>
         <option value="manual">manual</option>
+        <option value="ai">ai</option>
       </select>
     </dialog>
-    <script type="module" src="/static/app.js?v=dash-a-7"></script>
+    <script type="module" src="/static/app.js?v=dash-a-8"></script>
   </body>
 </html>

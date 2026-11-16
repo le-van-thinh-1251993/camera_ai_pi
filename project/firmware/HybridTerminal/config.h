@@ -120,7 +120,7 @@ static constexpr int MIC_DIN   = 38;  // SD
 // ===== NUT BO & LED TRANG THAI - xlsx dong 28-30 =====
 static constexpr int BOARD_BOOT_PIN  = 0;   // BOOT (strapping)
 static constexpr int BOARD_LED_PIN   = 2;   // LED don (do) - bo da sua: dung lam TFT MOSI
-static constexpr int BOARD_RGB_PIN   = -1;  // WS2812 tren GPIO48 - dang lam TFT DC nen khong tat duoc; 48 sau khi DC chuyen sang GPIO40
+static constexpr int BOARD_RGB_PIN   = -1;  // WS2812 tren GPIO48 = TFT DC: tat bang rgbLedOffSharedDc() (hardware.h); dat 48 neu DC doi chan khac
 
 // ===== USB / UART - xlsx dong 52-55 (khong dung lam GPIO) =====
 // UART0 TX=43, RX=44; USB OTG D-=19, D+=20.

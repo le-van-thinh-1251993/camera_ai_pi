@@ -21,7 +21,7 @@
 //                AUTO: giu yen tay 5 s (AUTO_HOLD_MS) -> tu chup.  MANUAL: SELECT de chup.
 //   Ket qua   -> anh vua chup dung yen, loa doc y nghia, 8 s sau ve live
 //
-// BACK1   GPIO47 = doi che do AUTO / MANUAL
+// BACK1   GPIO47 = doi che do MANUAL -> AUTO -> AI
 // SELECT1 GPIO21 = bat dau / chup / live tiep
 // DOWN1   GPIO3  = tang am luong
 // UP1     GPIO14 = giam am luong
@@ -80,6 +80,7 @@ static uint32_t wifiViewAt = 0;
 static constexpr uint32_t BACK_HOLD_MS = 3000;     // giu BACK de mo hotspot doi WiFi
 static constexpr uint32_t WIFI_BACK_SHOW_MS = 8000; // man "Da ket noi lai"
 static bool autoMode = false;  // mac dinh MANUAL khi khoi dong (BACK / web de doi sang AUTO)
+static bool aiMode = false;    // che do AI: tu chup nhu AUTO, Pi nho Gemini nghi cau y nghia
 static bool cameraOK = false;
 static uint32_t stageAt = 0;     // luc vao trang thai hien tai
 static int lastTenths = -1;      // dem nguoc da ve (don vi 0,1 s)
@@ -96,6 +97,7 @@ static bool resultKnown = false;
 
 static const char* HINT_AUTO = "Giữ yên tay 5 giây để tự chụp.";
 static const char* HINT_MANUAL = "Giơ tay cố định vào khung rồi nhấn SELECT để chụp.";
+static const char* HINT_AI = "Chế độ AI: giữ yên tay 5 giây, AI sẽ tự nghĩ ý nghĩa và đọc.";
 
 // =====================================================
 // THANH PHAN VE
@@ -145,7 +147,8 @@ static void drawFooter() {
   lcd.drawFastHLine(0, FOOT_Y, 480, C_LINE);
   int cy = FOOT_Y + FOOT_H / 2;
   bool busy = screen == SCR_BUSY;
-  keyChip(10, cy, "BACK", autoMode ? "Chế độ: AUTO" : "Chế độ: MANUAL", true, busy);
+  keyChip(10, cy, "BACK", aiMode ? "Chế độ: AI" : autoMode ? "Chế độ: AUTO" : "Chế độ: MANUAL", true,
+          busy);
   const char* sel = screen == SCR_RESULT || screen == SCR_ERROR ? "Live tiếp"
                     : busy                                      ? "Đang xử lý"
                     : autoMode                                  ? "Chụp ngay"
@@ -289,8 +292,8 @@ static void drawLiveChrome() {
     drawMeaningCard(wifiState == WS_ONLINE ? "Chỉ xem camera. Nhấn SELECT để xem cách kết nối máy chủ."
                                            : "Chỉ xem camera. Đang chờ WiFi.");
   } else if (autoMode) {
-    drawResultCard("KẾT QUẢ", "—", C_MUTE, "", C_WARN);
-    drawMeaningCard(HINT_AUTO);
+    drawResultCard("KẾT QUẢ", "—", C_MUTE, aiMode ? "AI" : "", C_ACC);
+    drawMeaningCard(aiMode ? HINT_AI : HINT_AUTO);
   } else {
     drawResultCard(resultKnown ? "LẦN TRƯỚC" : "KẾT QUẢ", resultBig,
                    resultKnown ? C_FG : C_MUTE, "Nhấn SELECT", C_ACC);
@@ -667,6 +670,7 @@ static String lastResultId;
 
 static void devPublish() {
   devState.autoMode = autoMode;
+  devState.aiMode = aiMode;
   devState.running = screen == SCR_LIVE || screen == SCR_BUSY;
   devState.hasFrame = cameraOK;
   devState.playing = speaking;
@@ -707,7 +711,7 @@ static void captureAndRecognize() {
     enterWifi(WV_NOSERVER);
     return;
   }
-  Serial.printf("[CHUP] %s\n", autoMode ? "auto" : "manual");
+  Serial.printf("[CHUP] %s\n", aiMode ? "ai" : autoMode ? "auto" : "manual");
   if (!liveGrabFrame(true)) { showError("Chụp ảnh lỗi, thử lại nhé."); return; }
 
   // Giu anh vua chup tren khung (dashboard cung thay anh nay qua stream)
@@ -717,7 +721,7 @@ static void captureAndRecognize() {
   camOutline(C_OK);
   drawBadge(true);
   drawResultCard("KẾT QUẢ", "…", C_MUTE, "Đang nhận diện", C_ACC);
-  drawMeaningCard("Đang gửi ảnh lên Pi.");
+  drawMeaningCard(aiMode ? "Đang gửi ảnh lên Pi. AI đang nghĩ ý nghĩa..." : "Đang gửi ảnh lên Pi.");
   drawFooter();
   speakerBeep();
 
@@ -726,7 +730,7 @@ static void captureAndRecognize() {
   String id = newRequestId();
   JsonDocument reply;
   uint32_t t0 = millis();
-  if (!lan.recognize(DEVICE_ID, id, liveDrawBuf, liveDrawLen, autoMode, reply)) {
+  if (!lan.recognize(DEVICE_ID, id, liveDrawBuf, liveDrawLen, autoMode, reply, aiMode)) {
     int st = lan.lastStatus;
     String cfg = " Đặt IP máy chủ tại http://" + String(wifiIp) + "/";
     showError(st == -10             ? "Không tìm thấy máy chủ." + cfg
@@ -743,6 +747,7 @@ static void captureAndRecognize() {
   resultMeaning = r["text"] | "Tôi chưa nhận diện được cử chỉ.";
   resultKnown = gesture.startsWith("Count_") && fingers >= 0;
   resultBig = resultKnown ? String(fingers) + " ngón" : String("Chưa rõ");
+  bool aiText = String(r["tts"] | "") == "ai";  // cau do Gemini nghi (khong phai cau co dinh)
   Serial.printf("[KET QUA] %s gesture=%s fingers=%d (%lums)\n", id.c_str(), gesture.c_str(),
                 fingers, (unsigned long)(millis() - t0));
 
@@ -750,7 +755,8 @@ static void captureAndRecognize() {
   screen = SCR_RESULT;
   speaking = true;
   camOutline(C_OK);
-  drawResultCard("KẾT QUẢ", resultBig, resultKnown ? C_FG : C_WARN, "Đang đọc", C_ACC, true);
+  drawResultCard("KẾT QUẢ", resultBig, resultKnown ? C_FG : C_WARN, aiText ? "AI đang đọc" : "Đang đọc",
+                 C_ACC, true);
   drawMeaningCard(resultMeaning);
   drawFooter();
 
@@ -840,6 +846,7 @@ static void tftResync() {
   lcd.getPanel()->init(false);
   lcd.setRotation(TFT_ROTATION);
   lcd.fillScreen(0);
+  rgbLedOffSharedDc();  // init lai lam LED GPIO48 chot mau -> tat lai
   lcd.setWriteHz(tftWriteHz);
   if (screen == SCR_WIFI) enterWifi(wifiView);
   else if (screen == SCR_WELCOME) drawWelcome(true);
@@ -873,10 +880,12 @@ static void handleButton(int key) {
     return;
   }
 
-  // BACK: doi AUTO / MANUAL
+  // BACK: doi vong MANUAL -> AUTO -> AI -> MANUAL
   if (screen == SCR_WELCOME) return;
-  autoMode = !autoMode;
-  Serial.printf("[MODE] %s\n", autoMode ? "AUTO" : "MANUAL");
+  if (!autoMode) { autoMode = true; aiMode = false; }
+  else if (!aiMode) aiMode = true;
+  else { autoMode = false; aiMode = false; }
+  Serial.printf("[MODE] %s\n", aiMode ? "AI" : autoMode ? "AUTO" : "MANUAL");
   if (screen == SCR_LIVE) startLive();
   else drawFooter();
 }
@@ -884,11 +893,12 @@ static void handleButton(int key) {
 // Lenh tu dashboard (device_sync.h) - ap dung nhu bam nut tren bo.
 static void applyWebCommand(const String& a) {
   Serial.printf("[WEB] Lenh %s | screen=%d\n", a.c_str(), (int)screen);
-  if (a == "auto" || a == "manual") {
-    bool want = a == "auto";
-    if (autoMode != want) {
-      autoMode = want;
-      Serial.printf("[MODE] %s (tu web)\n", autoMode ? "AUTO" : "MANUAL");
+  if (a == "auto" || a == "manual" || a == "ai") {
+    bool wantAuto = a != "manual", wantAi = a == "ai";
+    if (autoMode != wantAuto || aiMode != wantAi) {
+      autoMode = wantAuto;
+      aiMode = wantAi;
+      Serial.printf("[MODE] %s (tu web)\n", aiMode ? "AI" : autoMode ? "AUTO" : "MANUAL");
       if (screen == SCR_LIVE) startLive();
       else drawFooter();
     }
@@ -957,6 +967,7 @@ static void serialCommands() {
     else if (c == '-') handleButton(KEY_VOL_DOWN);
     else if (c == 'w') wifiOpenPortal(PR_MANUAL);
     else if (c == 'r') tftResync();
+    else if (c == 'l') rgbLedOffSharedDc();  // thu tat lai LED RGB GPIO48
     else if (c == 'i')
       Serial.printf("[LIVE] fps=%.1f frames=%lu dropped=%lu cam=%lums ve=%lums jpeg=%uB wifi=%s\n",
                     liveStats.fps, (unsigned long)liveStats.frames,
@@ -1023,7 +1034,7 @@ void setup() {
   screen = SCR_WELCOME;
   drawWelcome(true);
   playWelcome();  // WiFi van ket noi ngam trong luc phat; loop() cap nhat the IP sau
-  Serial.println("[READY] SELECT = vao live, BACK = AUTO/MANUAL (giu 3 s o man chao = doi WiFi), DOWN1/UP1 = am luong");
+  Serial.println("[READY] SELECT = vao live, BACK = MANUAL/AUTO/AI (giu 3 s o man chao = doi WiFi), DOWN1/UP1 = am luong");
 }
 
 void loop() {

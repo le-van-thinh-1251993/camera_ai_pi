@@ -16,6 +16,7 @@
 // Trang thai loop() cap nhat moi vong, task doc de gui len web.
 struct DevSyncState {
   volatile bool autoMode = true;
+  volatile bool aiMode = false;    // che do AI (tu chup nhu AUTO + Gemini nghi y nghia)
   volatile bool running = false;   // dang live / dang xu ly
   volatile bool hasFrame = false;
   volatile bool playing = false;   // loa dang doc
@@ -50,7 +51,7 @@ static void devSyncTask(void*) {
     if (devCmdPending) continue;  // loop chua ap dung lenh truoc
 
     JsonDocument st;
-    st["mode"] = devState.autoMode ? "auto" : "manual";
+    st["mode"] = devState.aiMode ? "ai" : devState.autoMode ? "auto" : "manual";
     st["running"] = (bool)devState.running;
     st["view"] = devViewName(devState.view);
     st["hold"] = (float)devState.hold;

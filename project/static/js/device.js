@@ -1,4 +1,4 @@
-import { el, requestId } from './api.js?v=dash-a-7';
+import { el, requestId } from './api.js?v=dash-a-8';
 export class DeviceController {
   constructor(api, ui) {
     this.api = api;
@@ -37,12 +37,15 @@ export class DeviceController {
     if (state.view === 'result')
       return 'Đã có kết quả. Bấm “Nhận diện tiếp” (hoặc SELECT trên bo) để chụp lượt mới.';
     if (state.control_pending) return 'Đang chờ bo nhận lệnh…';
-    if (mode === 'auto' && state.hold_seconds > 0)
-      return 'AUTO: giữ yên tay trong khung, bo đang đếm ngược để tự chụp.';
+    const label = mode === 'ai' ? '✨ AI' : 'AUTO';
+    if (mode !== 'manual' && state.hold_seconds > 0)
+      return `${label}: giữ yên tay trong khung, bo đang đếm ngược để tự chụp.`;
     if (state.running)
-      return mode === 'auto'
-        ? `AUTO: giơ tay vào khung và giữ yên ${hold} giây, bo sẽ tự chụp.`
-        : 'MANUAL: giơ tay vào khung rồi bấm “Chụp ngay” (hoặc SELECT trên bo).';
+      return mode === 'manual'
+        ? 'MANUAL: giơ tay vào khung rồi bấm “Chụp ngay” (hoặc SELECT trên bo).'
+        : mode === 'ai'
+          ? `✨ AI: giữ yên tay ${hold} giây; Gemini sẽ tự nghĩ câu ý nghĩa và bo đọc ra loa.`
+          : `AUTO: giơ tay vào khung và giữ yên ${hold} giây, bo sẽ tự chụp.`;
     return 'Bo đang ở màn chào. Bấm “Chụp ngay” hoặc SELECT trên bo để bắt đầu.';
   }
   // Live MJPEG tu ESP32, chuyen tiep qua Pi (/api/esp32/live/stream).
@@ -86,7 +89,7 @@ export class DeviceController {
     this.liveOn = false;
   }
   async command(action) {
-    if (action === 'auto' || action === 'manual')
+    if (action === 'auto' || action === 'manual' || action === 'ai')
       this.pendingMode = { mode: action, until: Date.now() + 8000 };
     this.fastUntil = Date.now() + 8000; // hoi trang thai nhanh trong luc cho ESP32 lam theo
     try {
@@ -110,7 +113,7 @@ export class DeviceController {
     const mode = this.pendingMode ? this.pendingMode.mode : state.mode;
     el('device-status').textContent =
       `${state.online ? '● Đã kết nối' : '○ Chưa nhận trạng thái'} · ${mode.toUpperCase()} · ${state.running ? 'Camera đang chạy' : state.view === 'result' ? 'Đã có kết quả' : 'Camera đang dừng'}${state.control_pending ? ' · Đang chờ nhận lệnh' : ''}`;
-    for (const m of ['auto', 'manual'])
+    for (const m of ['auto', 'manual', 'ai'])
       el('mode-' + m).setAttribute('aria-pressed', String(mode === m));
     el('device-capture').disabled = !state.online || !state.can_capture; // chup ngay ca AUTO lan MANUAL
     el('device-replay').disabled = !state.result;
@@ -120,7 +123,7 @@ export class DeviceController {
     el('mode-auto').textContent = `Auto · giữ ${hold} giây`;
     if (this.active) el('camera-status').textContent = this.statusText(state, mode);
     el('hold-status').textContent =
-      state.mode === 'auto' && state.hold_seconds > 0
+      state.mode !== 'manual' && state.hold_seconds > 0
         ? `Tự chụp sau ${Math.max(0, hold - state.hold_seconds)
             .toFixed(1)
             .replace('.', ',')} s`
