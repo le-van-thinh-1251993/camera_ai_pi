@@ -1,6 +1,11 @@
 export const el = (id) => document.getElementById(id);
-// Che do Auto: giu yen tay bao nhieu giay thi tu chup (trung AUTO_HOLD_MS trong firmware).
-export const HOLD_SECONDS = 5;
+// Che do Auto: giu yen tay bao nhieu giay thi tu chup. Gia tri that lay tu /health
+// (AUTO_HOLD_SECONDS tren server); 5 chi la mac dinh. Export ES module la live binding.
+export let HOLD_SECONDS = 5;
+export function setHoldSeconds(value) {
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds > 0 && seconds <= 30) HOLD_SECONDS = seconds;
+}
 export function requestId() {
   if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID();
   if (typeof crypto?.getRandomValues === 'function') {

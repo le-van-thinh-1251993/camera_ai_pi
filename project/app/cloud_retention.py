@@ -107,7 +107,11 @@ class CloudRetention:
 
         # 1) Mau Auto chua xac nhan (khong phai ket qua) + gioi han tuoi tuy chon -> xoa ca hang.
         minutes = _env_int("CLOUD_PROBE_RETENTION_MINUTES", 60, 10)
-        cond = "and(result->>confirmed.eq.false,created_at.lt." + stamp(now - timedelta(minutes=minutes)) + ")"
+        cond = (
+            "and(result->>confirmed.eq.false,created_at.lt."
+            + stamp(now - timedelta(minutes=minutes))
+            + ")"
+        )
         days = _env_int("CLOUD_RETENTION_DAYS", 0, 0)
         if days:
             cond += ",created_at.lt." + stamp(now - timedelta(days=days))
@@ -137,5 +141,7 @@ class CloudRetention:
                 await self.remove_job(job, keep_row=True)
                 pruned += 1
         self.rt.state["retention_deleted"] = self.rt.state.get("retention_deleted", 0) + len(rows)
-        self.rt.state["retention_images_pruned"] = self.rt.state.get("retention_images_pruned", 0) + pruned
+        self.rt.state["retention_images_pruned"] = (
+            self.rt.state.get("retention_images_pruned", 0) + pruned
+        )
         return len(rows) + pruned

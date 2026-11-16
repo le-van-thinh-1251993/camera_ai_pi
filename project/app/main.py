@@ -239,6 +239,7 @@ async def health(request: Request):
             "status": "ok" if ready else "starting",
             "ready": ready,
             "cloud_ready": bool(rt and rt.state["connected"]),
+            "hold_seconds": AUTO_HOLD_SECONDS,
             "mode": (
                 "local-only"
                 if os.getenv("LOCAL_ONLY", "0") == "1"

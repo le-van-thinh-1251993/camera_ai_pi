@@ -1,7 +1,6 @@
 #pragma once
 #include <Arduino.h>
 #include <atomic>
-static constexpr uint32_t HOLD_MS = 2000;
 static constexpr size_t AUTO_FRAMES = 1;
 struct Snapshot {
   String mode = "manual", view = "home", text = "", resultId = "", controlId = "";

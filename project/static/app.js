@@ -1,4 +1,4 @@
-import { Api, el, HOLD_SECONDS } from './js/api.js?v=dash-a-7';
+import { Api, el, HOLD_SECONDS, setHoldSeconds } from './js/api.js?v=dash-a-7';
 import { CloudJobs } from './js/cloud.js?v=dash-a-7';
 import { AudioPlayer } from './js/audio.js?v=dash-a-7';
 import { CameraController } from './js/camera.js?v=dash-a-7';
@@ -173,6 +173,7 @@ const camera = new CameraController(jobs, {
   },
   error,
   progress: (seconds) => {
+    el('hold-progress').max = HOLD_SECONDS;
     el('hold-progress').value = seconds;
     const left = Math.max(0, HOLD_SECONDS - seconds).toLocaleString('vi-VN', {
       minimumFractionDigits: 1,
@@ -225,8 +226,13 @@ function currentSource() {
   if (mode === 'upload') return 'upload';
   return el('camera-source').value === 'cloud' ? 'esp32' : 'phone';
 }
+// Nhan nut Auto cho camera dien thoai; ESP32 tu dat nhan theo hold_required (device.js).
+function holdLabel() {
+  if (currentSource() !== 'esp32') el('mode-auto').textContent = `Auto · giữ ${HOLD_SECONDS} giây`;
+}
 function syncSource() {
   const name = currentSource();
+  holdLabel();
   el('preview-panel').dataset.source = name;
   for (const key of ['esp32', 'phone', 'upload'])
     el('src-' + key).setAttribute('aria-pressed', String(key === name));
@@ -414,6 +420,8 @@ async function health() {
   try {
     const state = await (await fetch('/health')).json();
     localOnly = state.mode === 'local-only';
+    setHoldSeconds(state.hold_seconds);
+    holdLabel();
     el('key-section').hidden = localOnly;
     el('health').dataset.state = state.ready ? 'ok' : 'wait';
     el('health').textContent = state.ready

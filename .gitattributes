@@ -1,0 +1,17 @@
+# Luu va checkout van ban bang LF tren moi may (Windows cung vay): install_pi.sh chep sang Pi
+# khong bi loi \r, va MANIFEST.sha256.json khop giua Windows va Pi.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+
+# File nhi phan: khong doi xuong dong, khong diff. Tong dung luong hien ~15 MB nen chua dung
+# Git LFS (Pi clone khong co git-lfs se chi nhan file con tro). File moi > 20 MB -> dung Releases.
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.wav binary
+*.mp3 binary
+*.rar binary
+*.zip binary
+*.xlsx binary
+*.task binary
+*.tflite binary

@@ -6,8 +6,27 @@ from fastapi import Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-# Che do Auto: giu yen tay bao nhieu giay thi bo tu chup (trung AUTO_HOLD_MS trong firmware).
-AUTO_HOLD_SECONDS = int(os.getenv("AUTO_HOLD_SECONDS", "5"))
+
+# Che do Auto: giu yen tay bao nhieu giay thi tu chup. Web (camera dien thoai) doc gia tri nay qua
+# /health; ESP32 tu bao AUTO_HOLD_MS cua firmware trong trang thai ("hold_required") va gia tri do
+# duoc uu tien cho bo.
+def _hold_seconds():
+    try:
+        return max(1.0, min(30.0, float(os.getenv("AUTO_HOLD_SECONDS", "5"))))
+    except ValueError:
+        return 5.0
+
+
+AUTO_HOLD_SECONDS = _hold_seconds()
+
+
+def device_hold(state):
+    """So giay giu tay ma bo dang dung (firmware tu bao), mac dinh AUTO_HOLD_SECONDS."""
+    try:
+        value = float(state.get("hold_required") or 0)
+    except (TypeError, ValueError):
+        value = 0
+    return value if 0 < value <= 30 else AUTO_HOLD_SECONDS
 
 
 class Command(BaseModel):
@@ -153,7 +172,7 @@ class DeviceControl:
             "capture_pending": control.get("action") == "capture"
             and control.get("id") != state.get("control_id"),
             "hold_seconds": float(state.get("hold", 0)),
-            "hold_required": AUTO_HOLD_SECONDS,
+            "hold_required": device_hold(state),
             "frame_seq": int(latest["updated"] * 1000) if latest else -1,
             "can_capture": bool(state.get("has_frame")),
             "result": result["result"] if result else None,

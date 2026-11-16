@@ -122,10 +122,13 @@ def main() -> None:
             BANK / "xinchao.wav",
             BANK / "chuanhandiencuchi.wav",
         ]
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from make_manifest import digest  # CRLF -> LF giong make_manifest.py
+
         for path in [*clips, manifest_path, ROOT / "config/gestures.json"]:
             rel = path.relative_to(ROOT.parent).as_posix()
             if rel in sums:
-                sums[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
+                sums[rel] = digest(rel)
         release.write_text(json.dumps(sums, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     print("Xong. Khởi động lại server để dùng voice mới.")

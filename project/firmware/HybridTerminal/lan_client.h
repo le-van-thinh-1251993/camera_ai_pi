@@ -30,7 +30,7 @@ class LanSink : public Stream {
 // =====================================================================
 // THEO DOI MAY CHU (task rieng, khong chan giao dien)
 // Thu tu tim: (1) IP/ten nhap o trang cau hinh - neu co thi CHI dung no,
-// (2) LAN_HOST_IP_VALUE trong secrets.h, (3) ai-camera.local qua mDNS, (3b) do tim UDP
+// (2) LAN_HOST_IP_VALUE trong secrets.h, (3) Pi-AI.local qua mDNS, (3b) do tim UDP
 // broadcast (may tinh Windows khong co mDNS),
 // (4) gateway - dung khi ESP32 vao diem phat cua chinh may chay server
 //     (Windows Mobile Hotspot: 192.168.137.1).

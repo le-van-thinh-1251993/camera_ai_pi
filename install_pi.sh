@@ -58,6 +58,30 @@ PY
 else
   echo "Không tìm thấy ngrok; dashboard local vẫn tự khởi động. Cài ngrok rồi chạy lại installer để bật tunnel tự động."
 fi
+
+# Màn ST7789 trạng thái (scripts/pi_lcd.py): chỉ bật khi SPI đã bật (/dev/spidev0.0).
+# LCD_SERVICE=0 để bỏ qua, LCD_SERVICE=1 để bắt buộc cài dù chưa thấy SPI.
+LCD_SERVICE="${LCD_SERVICE:-auto}"
+if [[ "$LCD_SERVICE" == "1" || ( "$LCD_SERVICE" == "auto" && -e /dev/spidev0.0 ) ]]; then
+  if ! "$PY" -c 'import lgpio,spidev' >/dev/null 2>&1; then
+    "$PY" -m pip install lgpio spidev || echo "Không cài được lgpio/spidev; màn LCD sẽ báo lỗi cho tới khi cài xong."
+  fi
+  "$PY" - "$ROOT" "$PY" "$(id -un)" <<'PY'
+import sys
+from pathlib import Path
+root,python,user=sys.argv[1:]
+text=(Path(root)/'systemd/ai-camera-lcd.service.in').read_text()
+text=text.replace('@USER@',user).replace('@ROOT@',root).replace('@PYTHON@',python)
+(Path(root)/'systemd/ai-camera-lcd.service').write_text(text)
+PY
+  sudo cp "$ROOT/systemd/ai-camera-lcd.service" /etc/systemd/system/ai-camera-lcd.service
+  sudo systemctl daemon-reload
+  sudo systemctl enable ai-camera-lcd.service
+  sudo systemctl restart ai-camera-lcd.service
+  echo "Màn LCD trạng thái đã bật (ai-camera-lcd.service)."
+elif [[ "$LCD_SERVICE" == "auto" ]]; then
+  echo "Chưa bật SPI (/dev/spidev0.0); bỏ qua màn LCD. Bật SPI bằng raspi-config rồi chạy lại installer."
+fi
 for attempt in {1..25}; do
   health="$(curl -fsS --max-time 2 http://127.0.0.1:8000/health 2>/dev/null || true)"
   if [[ -n "$health" ]] && "$PY" - "$health" <<'PY'

@@ -2,7 +2,7 @@
 
 ESP32 phát broadcast UDP "AICAM?" tới cổng LAN_DISCOVERY_PORT (mặc định 8002);
 máy chủ trả "AICAM <cổng HTTP>" về đúng địa chỉ gửi. Nhờ vậy ESP32 tìm được máy
-tính Windows (không có mDNS ai-camera.local như Pi) mà không cần nhập IP.
+tính Windows (không có mDNS Pi-AI.local như Pi) mà không cần nhập IP.
 Tắt bằng LAN_DISCOVERY=0.
 """
 

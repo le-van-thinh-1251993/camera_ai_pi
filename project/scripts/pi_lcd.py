@@ -43,6 +43,16 @@ BAD = (248, 113, 113)
 WARN = (251, 191, 36)
 
 
+def load_font(path, size):
+    """DejaVu tren Pi; may khong co font (Windows/CI) thi dung font mac dinh cua Pillow."""
+    from PIL import ImageFont
+
+    try:
+        return ImageFont.truetype(path, size)
+    except OSError:
+        return ImageFont.load_default(size)
+
+
 def env(name, default):
     value = os.getenv(name)
     return default if value in (None, "") else value
@@ -194,7 +204,9 @@ def wifi_ssid():
     try:
         out = subprocess.run(
             ["nmcli", "-t", "-f", "ACTIVE,SSID", "dev", "wifi"],
-            capture_output=True, text=True, timeout=3,
+            capture_output=True,
+            text=True,
+            timeout=3,
         ).stdout
         for line in out.splitlines():
             if line.startswith("yes:"):
@@ -247,18 +259,24 @@ def collect():
 
 # ---------------------------------------------------------------- giao dien
 def render(info, size):
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw
 
     w, h = size
     k = min(w, h) / 240  # ti le chu theo kich thuoc man
-    f = lambda px, bold=False: ImageFont.truetype(FONT_BOLD if bold else FONT, max(9, int(px * k)))
+    f = lambda px, bold=False: load_font(FONT_BOLD if bold else FONT, max(9, int(px * k)))
     img = Image.new("RGB", size, BG)
     d = ImageDraw.Draw(img)
     pad = int(8 * k)
 
     # Tieu de
     d.text((pad, pad), "AI CAMERA", font=f(18, True), fill=ACC)
-    d.text((w - pad, pad + 2 * k), datetime.now().strftime("%H:%M"), font=f(16, True), fill=FG, anchor="ra")
+    d.text(
+        (w - pad, pad + 2 * k),
+        datetime.now().strftime("%H:%M"),
+        font=f(16, True),
+        fill=FG,
+        anchor="ra",
+    )
     y = pad + int(28 * k)
 
     def row(label, value, color=FG):
@@ -300,7 +318,7 @@ def render(info, size):
 
 
 def test_pattern(size):
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw
 
     w, h = size
     img = Image.new("RGB", size, (0, 0, 0))
@@ -308,7 +326,7 @@ def test_pattern(size):
     bars = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 255)]
     for i, color in enumerate(bars):
         d.rectangle((i * w // 4, 0, (i + 1) * w // 4, h // 2), fill=color)
-    font = ImageFont.truetype(FONT_BOLD, max(12, w // 12))
+    font = load_font(FONT_BOLD, max(12, w // 12))
     d.text((w // 2, h * 3 // 4), "ĐỎ  LÁ  LAM  TRẮNG", font=font, fill=(255, 255, 255), anchor="mm")
     d.rectangle((0, 0, w - 1, h - 1), outline=(255, 255, 0))
     return img
@@ -338,7 +356,10 @@ def main():
             if args.test or args.once:
                 sys.exit(1)
             time.sleep(30)
-    print(f"[LCD] ST7789 {lcd.width}x{lcd.height} xoay {lcd.rotation} offset ({lcd.ox},{lcd.oy})", flush=True)
+    print(
+        f"[LCD] ST7789 {lcd.width}x{lcd.height} xoay {lcd.rotation} offset ({lcd.ox},{lcd.oy})",
+        flush=True,
+    )
     try:
         if args.test:
             lcd.show(test_pattern((lcd.width, lcd.height)))

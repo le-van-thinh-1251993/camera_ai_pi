@@ -71,7 +71,7 @@ static constexpr int CAM_XCLK_HZ = 20000000;
 // Live preview: QVGA 320x240 ve 1:1 len TFT 480x320, cung khung do phat MJPEG.
 #define LIVE_FRAME_SIZE FRAMESIZE_QVGA  // QVGA 320x240 ~5 fps | HQVGA 240x176 ~9 fps (SPI 10 MHz)
 #define CAPTURE_FRAME_SIZE FRAMESIZE_VGA  // anh gui Pi nhan dien (640x480)
-static constexpr uint32_t AUTO_HOLD_MS = 5000;        // AUTO: giu yen tay 5 s roi tu chup (web: HOLD_SECONDS)
+static constexpr uint32_t AUTO_HOLD_MS = 5000;        // AUTO: giu yen tay 5 s roi tu chup (bo bao len web qua hold_required)
 static constexpr uint32_t AUTO_NEXT_ROUND_MS = 8000;  // giu ket qua roi quay lai live; 0 = cho SELECT
 static constexpr int LIVE_JPEG_QUALITY = 8;     // so nho = net hon (it vet khoi), QVGA ~10-15 KB
 static constexpr int CAM_SHARPNESS = 2;         // -2..2 (OV3660): tang do sac net
@@ -111,6 +111,8 @@ static constexpr bool BUTTON_ACTIVE_LOW=true; // Input pull-up; button to GND af
 
 // ===== MICRO I2S INMP441 - xlsx dong 18-23 =====
 // L/R noi GND -> kenh trai. Hien chua dung (khong ghi am).
+// CANH BAO: GPIO39/40 dang lam TFT CS/RESET (config_35inch_tft.h). Muon dung mic phai doi
+// mic hoac TFT CS/RESET sang chan khac va cap nhat Bang_Ket_Noi_Module_Schematic.xlsx.
 static constexpr int MIC_BCLK  = 39;  // SCK
 static constexpr int MIC_LRCLK = 40;  // WS
 static constexpr int MIC_DIN   = 38;  // SD

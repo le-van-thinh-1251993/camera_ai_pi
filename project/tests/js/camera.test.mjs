@@ -21,7 +21,7 @@ globalThis.document = {
 elements.set('phone-mode', { value: 'manual' });
 globalThis.cancelAnimationFrame = () => {};
 
-test('Auto waits two seconds locally, sends ONE image and stops even with a slow Cloud', async () => {
+test('Auto waits HOLD_SECONDS (5 s) locally, sends ONE image and stops even with a slow Cloud', async () => {
   let calls = 0,
     results = 0,
     stopped = 0;

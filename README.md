@@ -79,7 +79,7 @@ sudo systemctl enable --now avahi-daemon
 getent hosts Pi-AI.local
 ```
 
-> `project/.env.example` vẫn ghi `LAN_HOSTNAME=ai-camera.local`; nếu dùng biến này trên Pi, sửa thành `Pi-AI.local`.
+> Installer không ghi đè `.env` có sẵn trên Pi; nếu `.env` cũ còn `LAN_HOSTNAME=ai-camera.local`, sửa thành `Pi-AI.local`.
 
 ESP32 tìm máy chủ LAN theo thứ tự: IP đặt trên trang cấu hình WiFi / `LAN_HOST_IP_VALUE` trong `secrets.h` → mDNS `Pi-AI.local` → dò UDP cổng 8002 (`app/lan_discovery.py`, dùng được với máy Windows không có mDNS) → gateway. Không dùng IP cứng hay link ngrok cho LAN fallback; ngrok cần Internet.
 
@@ -88,7 +88,11 @@ ESP32 tìm máy chủ LAN theo thứ tự: IP đặt trên trang cấu hình WiF
 ## Dashboard web
 
 - Hai nguồn camera: điện thoại/máy đang mở trang, và ESP32 qua Cloud/LAN. Thêm tab tải ảnh.
-- **Auto giữ 5 giây** (`HOLD_SECONDS` trong `static/js/api.js`, `AUTO_HOLD_SECONDS` trên server, `AUTO_HOLD_MS` trong firmware — ba giá trị phải khớp). Đếm ngược trên thiết bị rồi gửi **đúng một ảnh**; có kết quả thì dừng và phát clip, bấm **Nhận diện tiếp** cho lượt mới. Manual và Upload gửi một ảnh.
+- **Auto giữ 5 giây.** Chỉ cần đổi ở hai chỗ, web tự theo:
+  - Camera điện thoại: `AUTO_HOLD_SECONDS` trong `.env` của Pi (mặc định 5, 1–30); web đọc qua `/health`.
+  - ESP32: `AUTO_HOLD_MS` trong `config.h`; bo tự báo `hold_required` lên server và dashboard hiển thị theo số đó.
+
+  Đếm ngược trên thiết bị rồi gửi **đúng một ảnh**; có kết quả thì dừng và phát clip, bấm **Nhận diện tiếp** cho lượt mới. Manual và Upload gửi một ảnh.
 - Với ESP32, dòng trạng thái dưới khung camera mô tả việc bo đang làm thật: chưa kết nối / đang chụp / chờ bo nhận lệnh / AUTO đang đếm ngược / MANUAL chờ bấm chụp / đã có kết quả / bo ở màn chào.
 - Live ESP32: Pi chuyển tiếp MJPEG `http://<ip-esp32>:81/stream` qua `/api/esp32/live/stream` (đặt `ESP32_LIVE_HOST` nếu không dùng `esp32-01.local`).
 - **Cộng tất cả tay** để đếm 6–10 ngón bằng hai tay; mặc định chỉ lấy tay nổi bật. **Chọn tay trong ảnh** khi ảnh có nhiều người. Nắm tay 0 ngón tính là chưa nhận diện (bộ clip chỉ có 1–10).
@@ -130,13 +134,11 @@ cd ~/ai-camera-release
 ~/ai-camera/.venv/bin/python scripts/pi_lcd.py --png lcd.png   # không cần màn, xuất PNG
 ```
 
-Installer **chưa** cài service màn; cài tay từ mẫu:
+Installer tự cài `lgpio`/`spidev` và bật `ai-camera-lcd.service` khi thấy `/dev/spidev0.0` (đã bật SPI). Chạy `LCD_SERVICE=0 bash install_pi.sh` để bỏ qua, `LCD_SERVICE=1` để bắt buộc cài.
 
 ```bash
-cd ~/ai-camera-release
-sed -e "s|@USER@|$(id -un)|" -e "s|@ROOT@|$PWD|" -e "s|@PYTHON@|$HOME/ai-camera/.venv/bin/python|" \
-  systemd/ai-camera-lcd.service.in | sudo tee /etc/systemd/system/ai-camera-lcd.service >/dev/null
-sudo systemctl daemon-reload && sudo systemctl enable --now ai-camera-lcd
+sudo systemctl status ai-camera-lcd --no-pager
+sudo journalctl -u ai-camera-lcd -n 20 --no-pager
 ```
 
 ## Firmware ESP32
@@ -158,7 +160,13 @@ Chân 8–12 của socket TFT được cắt khỏi bus camera và nối lại. 
 | RESET | **GPIO40** | firmware điều khiển (`TFT_RST_PIN`) |
 | VCC | **5V trực tiếp** | qua công tắc trên mạch in làm màn trắng |
 
-CS nối GND / RESET nối EN (cách cũ) làm màn trắng do xung nhiễu SCK lúc khởi động; muốn dùng lại cách đó thì đặt `TFT_CS_PIN` và `TFT_RST_PIN` thành `-1` trong `config_35inch_tft.h`. GPIO39/40 là chân mic INMP441 — muốn dùng mic phải đổi chân khác.
+CS nối GND / RESET nối EN (cách cũ) làm màn trắng do xung nhiễu SCK lúc khởi động; muốn dùng lại cách đó thì đặt `TFT_CS_PIN` và `TFT_RST_PIN` thành `-1` trong `config_35inch_tft.h`.
+
+**Việc phần cứng còn tồn (không sửa được bằng code):**
+
+- GPIO39/40 đang là CS/RESET của TFT nhưng trên schematic là chân mic INMP441 → mic hiện không dùng được. Khi cần mic, đổi một bên sang chân trống rồi sửa `config.h` / `config_35inch_tft.h`.
+- DC trên GPIO48 làm LED RGB luôn sáng; MOSI trên GPIO2 làm LED đỏ nháy theo dữ liệu.
+- Dây dupont chỉ để thử; khi hàn cố định, cập nhật lại `anh bo mach/Bang_Ket_Noi_Module_Schematic.xlsx` và bảng trên cho đúng chân thật.
 
 SPI: lệnh khởi tạo gửi ở 8 MHz, sau đó vẽ ở **20 MHz** (~97 ms/khung, nhanh nhất đo được; 26/40 MHz bị chia xung còn chậm hơn). Có thể đổi tốc độ lúc chạy qua `/cam?spi=`.
 
@@ -250,7 +258,15 @@ sudo journalctl -u ai-camera -n 40 --no-pager
 
 `verify_cloud.py` thử ảnh mẫu thật qua các route Cloud (upload, Manual, Auto một ảnh, WAV, ảnh lỗi); camera trong script là dữ liệu mô phỏng, không chứng minh iPhone/ESP32 vật lý hoạt động.
 
+Test gồm cả màn LCD (`test_pi_lcd.py`, vẽ không cần màn thật) và thời gian giữ tay (`test_device_hold.py`, `tests/js/api.test.mjs`).
+
 JS: Node 22, `npm ci --ignore-scripts`, `npm test`. Có Prettier, Ruff và workflow CI (`.github/workflows/tests.yml`). Kiểm thử trình duyệt tùy chọn: `tests/browser_cloud.py` qua Chrome headless `--remote-debugging-port` (không mở cổng debug ra Internet). Xem `VALIDATION.md` cho kết quả thực chạy và giới hạn.
+
+## Quy ước repo
+
+- `.gitattributes` giữ mọi file văn bản ở dạng LF (kể cả trên Windows) để `install_pi.sh` chạy được ngay trên Pi; `*.ps1` dùng CRLF. Ảnh, âm thanh, `.rar`, `.xlsx`, model được đánh dấu nhị phân.
+- Chưa dùng Git LFS: tổng file nhị phân khoảng 15 MB, và Pi clone mà không có `git-lfs` sẽ chỉ nhận file con trỏ. File mới trên ~20 MB thì đưa lên GitHub Releases.
+- `MANIFEST.sha256.json` là SHA-256 của bản phát hành (project, migrations, reports, installer). Sau khi sửa file, chạy `python project/scripts/make_manifest.py`; CI chạy `--check` và báo lỗi nếu quên.
 
 ## Khôi phục
 

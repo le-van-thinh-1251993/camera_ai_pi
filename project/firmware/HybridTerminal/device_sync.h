@@ -54,6 +54,7 @@ static void devSyncTask(void*) {
     st["running"] = (bool)devState.running;
     st["view"] = devViewName(devState.view);
     st["hold"] = (float)devState.hold;
+    st["hold_required"] = AUTO_HOLD_MS / 1000.0f;  // web lay so giay giu tay tu day
     st["has_frame"] = (bool)devState.hasFrame;
     st["result_id"] = devState.resultId;
     st["control_id"] = devState.controlId;

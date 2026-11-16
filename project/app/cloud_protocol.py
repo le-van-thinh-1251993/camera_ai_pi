@@ -1,9 +1,11 @@
-"""Shared validation and the two-second Auto decision, independent of network latency."""
+"""Shared validation and the legacy 3-frame Auto decision, independent of network latency."""
 
 import math
 import uuid
 
-HOLD_MS = 2000
+# Chi dung cho kieu Auto cu gui 3 khung trong 2 s (v5 / hang doi cu). Thoi gian giu tay
+# hien tai cua che do Auto 1 anh la AUTO_HOLD_SECONDS (cloud_control.py) / AUTO_HOLD_MS (firmware).
+LEGACY_BATCH_HOLD_MS = 2000
 
 
 def validate_input(request_id, owner, primary, data):
@@ -37,7 +39,7 @@ def validate_input(request_id, owner, primary, data):
         previous = ms
     if frames[0]["path"] != primary:
         raise ValueError("invalid_primary_frame")
-    if legacy_batch and frames[-1]["ms"] - frames[0]["ms"] < HOLD_MS:
+    if legacy_batch and frames[-1]["ms"] - frames[0]["ms"] < LEGACY_BATCH_HOLD_MS:
         raise ValueError("hold_too_short")
     focus = data.get("focus")
     if focus is not None and (
@@ -51,7 +53,7 @@ def validate_input(request_id, owner, primary, data):
 
 def auto_decision(events, frames):
     """Both endpoints must agree; tolerate one occluded middle sample, never a different valid gesture."""
-    if len(events) != 3 or frames[-1]["ms"] - frames[0]["ms"] < HOLD_MS:
+    if len(events) != 3 or frames[-1]["ms"] - frames[0]["ms"] < LEGACY_BATCH_HOLD_MS:
         return False
     first = events[0].get("finger_count")
     last = events[-1].get("finger_count")
