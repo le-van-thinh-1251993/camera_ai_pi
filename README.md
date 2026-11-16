@@ -1,194 +1,195 @@
 # AI Camera Cloud v6
 
-Bản nâng cấp theo review ngày 30/10/2026. **Ảnh tải lên, camera điện thoại và ESP32, Auto và Manual đều có đường Cloud và LAN.** Khi Supabase mất kết nối, Pi nhận diện trực tiếp bằng MediaPipe/OpenCV; khi mạng trở lại, outbox đồng bộ ngược lên Supabase.
+Hệ thống nhận diện cử chỉ đếm ngón tay (1–10) gồm ba phần nối với nhau:
 
-## Cài bản cập nhật
+| Thành phần | Vai trò |
+| --- | --- |
+| **Bo ESP32-S3** (`project/firmware/HybridTerminal`) | Camera OV3660 + TFT 3,5" ILI9488 + loa MAX98357A + 4 nút. Xem live, chụp, gửi ảnh, phát câu nói kết quả. |
+| **Raspberry Pi** (`project/app`, hostname `Pi-AI`) | Server FastAPI + worker MediaPipe/OpenCV, dashboard web, màn ST7789 trạng thái, ngrok. |
+| **Supabase Cloud** (`migrations/`) | Hàng đợi request, kết quả, ảnh, âm thanh; dữ liệu thống kê lâu dài. |
 
-Trên Windows PowerShell, chép ZIP mới lên Pi rồi SSH:
+**Ảnh tải lên, camera điện thoại và ESP32, Auto và Manual đều có đường Cloud và LAN.** Khi có mạng, mọi nguồn ưu tiên Supabase. Khi Supabase/Internet mất, Pi nhận diện trực tiếp và ESP32 chuyển sang LAN; khi mạng trở lại, outbox đồng bộ ngược lên Supabase.
 
-```powershell
-scp "C:\Users\minh.nl\Documents\Codex\2026-10-22\referenced-chatgpt-conversation-this-is-an\outputs\ai-camera-cloud-v6-single-network-fix.zip" lethinh@ai-camera.local:~/
-ssh lethinh@ai-camera.local
+```text
+ESP32 ──(Cloud: Supabase RPC/Storage)──► Supabase ◄── worker trên Pi
+  │                                                    │
+  └──(LAN fallback: http://Pi-AI.local:8000)──────────► Pi ──► dashboard (LAN / ngrok HTTPS)
+                                                       └──► màn ST7789 trạng thái
 ```
 
-Nếu ZIP ở thư mục khác, dùng đúng đường dẫn thực tế. Trên Pi:
+## Cấu trúc thư mục
+
+| Đường dẫn | Nội dung |
+| --- | --- |
+| `install_pi.sh`, `install.py` | Installer/rollback trên Pi |
+| `migrations/` | SQL Supabase 001–004 |
+| `project/app/` | Server, worker Cloud, fallback LAN, retention, TTS |
+| `project/static/` | Dashboard (JS tách module: camera, upload, cloud, audio, device, events, stats) |
+| `project/firmware/HybridTerminal/` | Firmware ESP32 duy nhất |
+| `project/firmware/TftPinTest/` | Sketch thử chân/tốc độ TFT |
+| `project/scripts/` | `pi_lcd.py`, `verify_cloud.py`, `diagnose_cloud.py`, `dashboard_key.py`, `make_tft_assets.py`, `import_voice.py`… |
+| `project/systemd/` | Mẫu service `ai-camera`, `ai-camera-ngrok`, `ai-camera-lcd` |
+| `anh bo mach/` | Ảnh bo mạch thật + `Bang_Ket_Noi_Module_Schematic.xlsx` (bảng nối chân) |
+| `voice/voice.rar` | Bộ giọng gốc; `doi-cau-noi-va-voice.patch` là patch đổi câu nói |
+| `VALIDATION.md`, `REVIEW_FIXES.md`, `reports/` | Kết quả kiểm thử và giới hạn |
+
+## Cài đặt / cập nhật trên Pi
 
 ```bash
-unzip -o ~/ai-camera-cloud-v6-single-network-fix.zip -d ~/ai-camera-cloud-v6-single-network-fix
-bash ~/ai-camera-cloud-v6-single-network-fix/install_pi.sh
+git clone https://github.com/le-van-thinh-1251993/camera_ai_pi.git ~/ai-camera-cloud-v6   # hoặc git pull nếu đã có
+bash ~/ai-camera-cloud-v6/install_pi.sh
 ```
 
-Installer dùng venv `~/ai-camera/.venv`, giữ model/recording, ánh xạ câu nói, `.env.cloud`, các key Supabase và `secrets.h` hiện có. Chỉ cài thư viện còn thiếu, không thay MediaPipe/OpenCV. Source cập nhật tại `~/ai-camera-release`; file bị thay có backup trong `backups/cloud-v6-*`.
+Installer dùng venv `~/ai-camera/.venv`, giữ model/recording, ánh xạ câu nói, `.env.cloud`, các key Supabase và `secrets.h` hiện có. Chỉ cài thư viện còn thiếu, không thay MediaPipe/OpenCV. Source cập nhật tại `~/ai-camera-release`; file bị thay có backup trong `backups/cloud-v6-*`. Installer dừng worker cũ trước khi chép source và bật `ai-camera.service` khi Pi khởi động.
 
-**Không đưa secret/service key Supabase vào ZIP.** ZIP có sẵn URL project, còn `.env.cloud` và khóa server hiện có trên Pi được giữ nguyên. Secret Supabase có toàn quyền Storage/Postgres; hardcode vào ZIP sẽ làm lộ quyền truy cập khi chép sang máy khác. `SUPABASE_SECRET_KEY` vẫn phải được cung cấp trong `.env.cloud` của máy đích. Nếu `API_KEY` dashboard đang rỗng, installer sinh khóa ngẫu nhiên; hãy lấy khóa bằng script quản trị trước khi mở ngrok công khai.
-
-Đọc khóa dashboard trên terminal riêng rồi nhập vào cửa sổ Cài đặt kết nối (installer sinh khóa ngẫu nhiên nếu chưa có khóa cũ):
+**Không commit/đóng gói secret Supabase.** `SUPABASE_SECRET_KEY` có toàn quyền Storage/Postgres, chỉ đặt trong `.env.cloud` của máy đích. Nếu `API_KEY` dashboard rỗng, installer sinh khóa ngẫu nhiên; đọc khóa trước khi mở ngrok công khai:
 
 ```bash
 ~/ai-camera/.venv/bin/python ~/ai-camera-release/scripts/dashboard_key.py --show
 ```
 
-Mở dashboard, **Ctrl+F5**, nhập khóa. Khi dùng camera iPhone, mở qua link ngrok **HTTPS**, cấp quyền camera rồi chọn camera trước/sau.
+Mở dashboard, **Ctrl+F5**, nhập khóa vào cửa sổ Cài đặt kết nối. Camera iPhone cần mở qua link ngrok **HTTPS**, cấp quyền camera rồi chọn camera trước/sau.
 
-## Tự khởi động local và ngrok
+### SQL Supabase
 
-Installer bật `ai-camera.service` khi Pi khởi động. Nếu đã cài ngrok ở `/usr/bin/ngrok` hoặc `~/ngrok-demo/ngrok`, installer cũng tạo `ai-camera-ngrok.service`; token được đọc từ cấu hình ngrok hiện có, không nằm trong ZIP. Xem link public sau khi Pi lên:
+Project mới: chạy schema gốc `001`, rồi `002`, `003`, `004` theo thứ tự. Project đã áp dụng thì không cần chạy lại. `003` thêm input nhiều khung, RPC gửi request/trao đổi trạng thái, âm thanh dùng chung và lỗi vĩnh viễn; `004` tách claim v5/v6 để worker cũ không nhận nhầm job mới. Migration không đổi key.
+
+### Tự khởi động ngrok
+
+Nếu có ngrok ở `/usr/bin/ngrok` hoặc `~/ngrok-demo/ngrok`, installer tạo thêm `ai-camera-ngrok.service`; token đọc từ cấu hình ngrok hiện có.
 
 ```bash
-curl http://127.0.0.1:4040/api/tunnels
+curl http://127.0.0.1:4040/api/tunnels                     # xem link public
 sudo systemctl status ai-camera ai-camera-ngrok --no-pager
+sudo systemctl disable --now ai-camera-ngrok               # tắt tunnel nếu chưa muốn public
 ```
 
-Nếu chưa muốn public dashboard, tắt tunnel:
+## Mạng LAN và hostname Pi
 
-```bash
-sudo systemctl disable --now ai-camera-ngrok
-```
-
-## LAN hostname và fallback ESP32
-
-### Hostname cần dùng khi mất Internet
-
-Khi mất Internet nhưng ESP32/điện thoại và Pi vẫn ở cùng Wi-Fi/LAN, dùng đúng
-hostname:
+Từ 15/11/2026 Pi dùng hostname **`Pi-AI`** (mDNS `Pi-AI.local`, trước đây là `ai-camera.local`). Firmware (`LAN_HOSTNAME` trong `config.h`) đã đổi theo. Endpoint LAN:
 
 ```text
-ai-camera.local
+http://Pi-AI.local:8000
 ```
-
-Địa chỉ endpoint LAN là:
-
-```text
-http://ai-camera.local:8000
-```
-
-Không dùng IP `192.168.0.94` và không dùng link ngrok trong chế độ này. Ngrok cần
-Internet; hostname mDNS chỉ hoạt động khi thiết bị và Pi cùng mạng nội bộ.
-
-Pi phải có hostname mDNS `ai-camera.local`; địa chỉ IP có thể thay đổi theo router
-mà không cần sửa firmware:
 
 ```bash
 sudo apt-get install -y avahi-daemon
-sudo hostnamectl set-hostname ai-camera
+sudo hostnamectl set-hostname Pi-AI
 sudo systemctl enable --now avahi-daemon
-getent hosts ai-camera.local
+getent hosts Pi-AI.local
 ```
 
-Đặt `LAN_API_KEY` trong `.env` trên Pi và chép cùng giá trị vào
-`firmware/HybridTerminal/secrets.h` dưới macro `LAN_API_KEY_VALUE`. Nếu để trống trên Pi,
-server dùng lại `API_KEY`. ESP32 ưu tiên Supabase; khi Cloud lỗi, nó gửi JPEG,
-trạng thái, ACK và nhận kết quả/audio qua `http://ai-camera.local:8000`. Dữ liệu
-được lưu vào `data/hybrid/jobs.sqlite3`, sau đó worker upload lại ảnh, audio và
-kết quả khi Cloud hồi phục.
+> `project/.env.example` vẫn ghi `LAN_HOSTNAME=ai-camera.local`; nếu dùng biến này trên Pi, sửa thành `Pi-AI.local`.
 
-## SQL đã bổ sung
+ESP32 tìm máy chủ LAN theo thứ tự: IP đặt trên trang cấu hình WiFi / `LAN_HOST_IP_VALUE` trong `secrets.h` → mDNS `Pi-AI.local` → dò UDP cổng 8002 (`app/lan_discovery.py`, dùng được với máy Windows không có mDNS) → gateway. Không dùng IP cứng hay link ngrok cho LAN fallback; ngrok cần Internet.
 
-Bạn đã chạy `003_cloud_only.sql` và `004_worker_version.sql` trong phiên làm việc này. File nằm trong `migrations/` để quản lý phiên bản; không cần chạy lại khi cập nhật trên cùng project đã áp dụng.
+Đặt `LAN_API_KEY` trong `.env` trên Pi và chép cùng giá trị vào `secrets.h` (`LAN_API_KEY_VALUE`); để trống thì server dùng lại `API_KEY`. Khi Cloud lỗi, ESP32 gửi JPEG, trạng thái, ACK và nhận kết quả/audio qua LAN. Dữ liệu lưu ở `data/hybrid/jobs.sqlite3`; worker upload lại ảnh, audio, kết quả khi Cloud hồi phục. `CLOUD_LOCAL_FALLBACK=1` là mặc định; đặt `0` chỉ khi muốn Cloud-only.
 
-003 bổ sung input nhiều khung hình, RPC gửi request/trao đổi trạng thái, âm thanh dùng chung và lỗi vĩnh viễn. 004 tách claim v5/v6 để worker cũ đang chạy không nhận nhầm job mới. Installer dừng worker cũ trước khi chép source và chỉ chạy một service `ai-camera` sau cập nhật.
+## Dashboard web
 
-Với project mới cần schema gốc, SQL 002, 003, 004 theo thứ tự; các file migrations không thay key.
+- Hai nguồn camera: điện thoại/máy đang mở trang, và ESP32 qua Cloud/LAN. Thêm tab tải ảnh.
+- **Auto giữ 5 giây** (`HOLD_SECONDS` trong `static/js/api.js`, `AUTO_HOLD_SECONDS` trên server, `AUTO_HOLD_MS` trong firmware — ba giá trị phải khớp). Đếm ngược trên thiết bị rồi gửi **đúng một ảnh**; có kết quả thì dừng và phát clip, bấm **Nhận diện tiếp** cho lượt mới. Manual và Upload gửi một ảnh.
+- Với ESP32, dòng trạng thái dưới khung camera mô tả việc bo đang làm thật: chưa kết nối / đang chụp / chờ bo nhận lệnh / AUTO đang đếm ngược / MANUAL chờ bấm chụp / đã có kết quả / bo ở màn chào.
+- Live ESP32: Pi chuyển tiếp MJPEG `http://<ip-esp32>:81/stream` qua `/api/esp32/live/stream` (đặt `ESP32_LIVE_HOST` nếu không dùng `esp32-01.local`).
+- **Cộng tất cả tay** để đếm 6–10 ngón bằng hai tay; mặc định chỉ lấy tay nổi bật. **Chọn tay trong ảnh** khi ảnh có nhiều người. Nắm tay 0 ngón tính là chưa nhận diện (bộ clip chỉ có 1–10).
+- Nút chạm ≥ 44 px, chế độ sáng/tối, **Phóng to ảnh**. Camera điện thoại tạm dừng khi ẩn trang để tránh ảnh stale trên iOS.
 
-## Camera Auto 2 giây
-
-Bản **single**: Auto đếm ngược 2 giây ngay trên thiết bị, sau đó chụp và gửi **đúng một ảnh**. Không gửi ảnh tại giây 0/1; không có vòng tự chụp/gửi lại khi chưa rõ. Có kết quả (kể cả chưa nhận diện) thì dừng và phát clip; bấm **Nhận diện tiếp** để bắt đầu lượt mới.
-
-Đây là thời gian căn tay trước khi chụp, không phải bằng chứng tay đã giữ ổn định liên tục. Transport Cloud dùng `mode=manual, capture_mode=auto` cho một ảnh để tương thích SQL 003/004 hiện có; không cần migration hay đổi key. Upload và Manual vẫn gửi một ảnh. Hàng đợi cũ 3 khung vẫn được đọc để tránh làm hỏng request đang chờ.
-
-Worker dọn dữ liệu trong task riêng, không bắt lượt nhận diện kế tiếp chờ dọn Storage. Yêu cầu từ trình duyệt không tạo/upload JPEG cho TFT; ESP32 vẫn nhận JPEG màn hình. Kết quả vẫn phải được ghi thành công vào Supabase trước khi trả về dashboard.
-
-Chọn **Cộng tất cả tay** khi cần cộng hai tay để đếm 6–10 ngón. Mặc định chọn tay nổi bật, không tự cộng mọi người trong ảnh. Với ảnh nhiều người, dùng **Chọn tay trong ảnh** để chỉ vùng tay mục tiêu. Nắm tay 0 ngón vẫn thuộc nhóm chưa nhận diện vì bộ clip hiện tại chỉ có 1–10.
-
-## Giao diện
-
-Khi có mạng, dashboard và ESP32 ưu tiên Supabase Cloud. Khi Supabase/Internet mất
-kết nối, Pi tự nhận diện cục bộ và ESP32 chuyển qua LAN hostname `ai-camera.local`.
-`CLOUD_LOCAL_FALLBACK=1` là mặc định để giữ luồng offline; đặt `0` chỉ khi muốn
-Cloud-only.
-Kết quả được lưu trong `DATA_DIR/hybrid/jobs.sqlite3` và vẫn xem được qua dashboard.
-
-### Chạy local không cần Supabase
-
-Trên Windows, mở PowerShell tại thư mục `project` rồi chạy:
+### Chạy local không cần Supabase (Windows)
 
 ```powershell
-.\run_local.ps1
+cd project
+.\run_local.ps1          # hoặc .\run_local_lan.ps1 để ESP32 trong LAN gọi tới
 ```
 
-Hoặc sao chép `.env.local.example` thành `.env` rồi chạy `python scripts\serve.py`.
-Chế độ này đặt `LOCAL_ONLY=1`, nhận diện bằng MediaPipe trên máy, lưu SQLite trong
-`data/hybrid/jobs.sqlite3` và không kết nối Supabase. Mở `http://127.0.0.1:8000`.
+Chế độ `LOCAL_ONLY=1`: nhận diện bằng MediaPipe trên máy, lưu SQLite, mở `http://127.0.0.1:8000`.
 
-Chỉ còn hai nguồn camera: điện thoại/máy đang mở trang và ESP32 qua Cloud/LAN. Video điện thoại vẽ trong canvas trong khung, có `playsinline`, không dùng fullscreen video của iPhone.
+## Màn ST7789 trạng thái trên Pi
 
-Khung ảnh mặc định lớn hơn bản v5, có nút **Phóng to ảnh**, nút chạm 44 px trở lên, chữ gợi ý 14 px và chế độ sáng/tối. Màn nhỏ có thể cần cuộn; chế độ phóng to ưu tiên ảnh thay vì ép ảnh quá nhỏ. Thông số kỹ thuật vẫn ở mục mở rộng. JS được tách thành camera, upload, Cloud queue, âm thanh, thiết bị và sự kiện.
+`project/scripts/pi_lcd.py` vẽ bảng trạng thái lên màn SPI ST7789 gắn trên Pi (hỗ trợ Pi 5, `lgpio` + `spidev`): tên/IP Pi, WiFi, web, Supabase, ESP32 (online, AUTO/MANUAL), kết quả gần nhất và địa chỉ dashboard. Chỉ đọc server local `http://127.0.0.1:8000`, không gọi Internet.
 
-Camera điện thoại tạm dừng khi ẩn trang; khi quay lại bấm Bật camera/Nhận diện tiếp. Chính sách này tránh chụp một chuỗi ảnh stale khi iOS tự dừng camera ở nền.
+Nối mặc định (BCM): SPI0 (MOSI GPIO10, SCLK GPIO11, CE0), `DC=25`, `RST=27`, `BL=24`. Bật SPI bằng `raspi-config`. Cấu hình trong `.env` (đều có mặc định):
 
-Dashboard ESP32 hiển thị ảnh gửi gần nhất; **camera trực tiếp để căn tay chạy tại TFT**, không stream video qua Storage liên tục.
+```dotenv
+LCD_WIDTH=240           # 240x240, 240x280, 240x320, 172x320, 135x240
+LCD_HEIGHT=240
+LCD_ROTATION=0          # 0/1/2/3
+LCD_INVERT=1            # màu âm bản -> 0
+LCD_SPI_MODE=0          # màn 7 chân không có CS -> 3
+LCD_SPI_HZ=40000000     # nhiễu -> 20000000
+LCD_DC=25
+LCD_RST=27
+LCD_BL=24               # -1 nếu BLK nối thẳng 3.3V
+LCD_BGR=0               # đỏ/xanh dương bị đảo -> 1
+# LCD_X_OFFSET / LCD_Y_OFFSET chỉ đặt khi hình bị lệch
+```
+
+```bash
+cd ~/ai-camera-release
+~/ai-camera/.venv/bin/python scripts/pi_lcd.py --test          # 4 dải màu + khung vàng
+~/ai-camera/.venv/bin/python scripts/pi_lcd.py --once          # vẽ bảng 1 lần
+~/ai-camera/.venv/bin/python scripts/pi_lcd.py --png lcd.png   # không cần màn, xuất PNG
+```
+
+Installer **chưa** cài service màn; cài tay từ mẫu:
+
+```bash
+cd ~/ai-camera-release
+sed -e "s|@USER@|$(id -un)|" -e "s|@ROOT@|$PWD|" -e "s|@PYTHON@|$HOME/ai-camera/.venv/bin/python|" \
+  systemd/ai-camera-lcd.service.in | sudo tee /etc/systemd/system/ai-camera-lcd.service >/dev/null
+sudo systemctl daemon-reload && sudo systemctl enable --now ai-camera-lcd
+```
 
 ## Firmware ESP32
 
-Dùng duy nhất `project/firmware/HybridTerminal`. Giữ `secrets.h` của thiết bị đang có; ZIP không chứa khóa. File `secrets.example.h` chỉ là mẫu trống.
+Dùng duy nhất `project/firmware/HybridTerminal`. Giữ `secrets.h` của thiết bị; `secrets.example.h` chỉ là mẫu trống.
 
-### Camera live (TFT + dashboard)
+Arduino IDE: core **esp32 3.0.x**, thư viện **LovyanGFX**, board *ESP32S3 Dev Module*, `PSRAM: OPI PSRAM`, `Flash Size: 16MB`, `Partition: 16M Flash (3MB APP/9.9MB FATFS)`.
 
-Arduino IDE: core **esp32 3.0.x**, thư viện **LovyanGFX**, board *ESP32S3 Dev Module*,
-`PSRAM: OPI PSRAM`, `Flash Size: 16MB`, `Partition: 16M Flash (3MB APP/9.9MB FATFS)`.
-WiFi cấu hình ngay trên thiết bị (xem mục **Cấu hình WiFi** bên dưới); `WIFI_SSID_VALUE`/`WIFI_PASSWORD_VALUE` trong `secrets.h` chỉ là mạng mặc định, không bắt buộc.
+### Nối TFT 3,5" (bo đã sửa, `SHARED_CAM_TFT_BUS 0`)
 
-Mặc định firmware dành cho **bo đã sửa** (`SHARED_CAM_TFT_BUS 0` trong `config.h`):
-chân 8–12 của socket TFT được cắt khỏi ESP32 và nối dây lại như sau:
+Chân 8–12 của socket TFT được cắt khỏi bus camera và nối lại. Cấu hình hiện tại đã thử ổn bằng dây dupont (15/11/2026):
 
-| TFT | Nối tới |
-| --- | --- |
-| SCK | GPIO1 |
-| SDI/MOSI | GPIO2 (chung đường với LED đỏ trên bo) |
-| DC/RS | GPIO46 (chân strapping, để trống khi nạp code) |
-| CS | GND |
-| RESET | EN |
+| TFT | Nối tới | Ghi chú |
+| --- | --- | --- |
+| SCK | GPIO1 | |
+| SDI/MOSI | GPIO2 | chung đường LED đỏ trên bo |
+| DC/RS | GPIO48 | chung LED RGB WS2812 nên LED sáng; dự kiến chuyển sang GPIO40 khi hàn lại |
+| CS | **GPIO39** | firmware điều khiển (`TFT_CS_PIN`) |
+| RESET | **GPIO40** | firmware điều khiển (`TFT_RST_PIN`) |
+| VCC | **5V trực tiếp** | qua công tắc trên mạch in làm màn trắng |
 
-Camera và TFT chạy đồng thời. Mỗi vòng loop lấy khung QVGA mới nhất, vẽ 1:1 lên TFT
-và phát cùng khung đó ở `http://<ip-esp32>:81/stream`; Pi chuyển tiếp qua
-`/api/esp32/live/stream` (đặt `ESP32_LIVE_HOST` nếu không dùng `esp32-01.local`).
-Dashboard tự hiện live khi chọn nguồn camera ESP32.
+CS nối GND / RESET nối EN (cách cũ) làm màn trắng do xung nhiễu SCK lúc khởi động; muốn dùng lại cách đó thì đặt `TFT_CS_PIN` và `TFT_RST_PIN` thành `-1` trong `config_35inch_tft.h`. GPIO39/40 là chân mic INMP441 — muốn dùng mic phải đổi chân khác.
 
-Bo **chưa sửa**: đặt `SHARED_CAM_TFT_BUS 1`. Khi đó TFT dùng lại GPIO 8–12 chung với
-camera, `live_camera.h` chạy luân phiên từng khung (bật/tắt chân xuất cảm biến qua SCCB),
-chậm hơn nhiều.
+SPI: lệnh khởi tạo gửi ở 8 MHz, sau đó vẽ ở **20 MHz** (~97 ms/khung, nhanh nhất đo được; 26/40 MHz bị chia xung còn chậm hơn). Có thể đổi tốc độ lúc chạy qua `/cam?spi=`.
 
-Serial Monitor (115200): `b s + -` giả lập 4 nút, `i` in FPS và thời gian chụp/vẽ, `w` mở hotspot cấu hình WiFi.
+**Màn trắng khi đang chạy:** giữ cùng lúc **DOWN + UP** (~1,2 s một lần) hoặc gõ `r` trên Serial để đồng bộ lại (chèn 1 xung SCK, reset mềm, init lại; tối đa 8 lần là khớp). `TftPinTest` có lệnh `a` thử cả 8 vị trí lệch nhịp để phân biệt lỗi lệch nhịp với lỗi dây/nguồn.
 
-### Cấu hình WiFi (hotspot + trang cấu hình)
+Bo **chưa sửa**: đặt `SHARED_CAM_TFT_BUS 1`, TFT dùng chung GPIO 8–12 với camera và chạy luân phiên từng khung (chậm hơn nhiều).
 
-Làm theo cách của Xiaozhi ESP32, không cần sửa code khi đổi mạng:
+### Camera OV3660
 
-- **Khởi động:** thử lần lượt các mạng đã lưu (mạng lưu gần nhất trước, 12 giây mỗi mạng;
-  mạng trong `secrets.h` thử sau cùng). Vào được thì màn chào hiện **IP** và `esp32-01.local`.
-  Mở `http://<ip>/` trong cùng mạng để xem và đổi WiFi.
-- **Chưa có WiFi / không vào được mạng nào:** thiết bị phát hotspot mở `AI-Camera-XXXX`
-  (4 ký tự cuối MAC). Màn TFT có mã QR để vào hotspot. Điện thoại vào hotspot thì trang
-  cấu hình tự bật; nếu không, mở `http://192.168.4.1/`. Chọn mạng, nhập mật khẩu, bấm **Lưu và kết nối**.
-- **Mất WiFi khi đang chạy:** màn cảnh báo, tự kết nối lại; quá 30 giây thì bật hotspot song song
-  (SELECT để bật ngay) và vẫn thử lại các mạng đã lưu. Khi có mạng: màn "Đã kết nối lại" hiện IP mới
-  cạnh IP cũ trong 8 giây, hotspot tắt sau 20 giây.
-- **Đổi WiFi chủ động:** giữ **BACK 3 giây** ở màn chào, hoặc giữ BACK khi cấp điện, hoặc gõ `w` trên Serial.
+Chân (`config.h`): `XCLK=15`, `SIOD=4`, `SIOC=5`, `Y9..Y2 = 16, 17, 18, 12, 10, 8, 9, 11`, `VSYNC=6`, `HREF=7`, `PCLK=13`, `PWDN=-1`, `RESET=-1`.
 
-Lưu tối đa 5 mạng trong NVS (Preferences `wifi`); nạp lại firmware không mất danh sách.
-Trang cấu hình không có mật khẩu bảo vệ: ai trong cùng mạng LAN hoặc vào được hotspot đều đổi được WiFi.
+Live QVGA 320×240 vẽ 1:1 lên TFT và phát cùng khung ở cổng 81; ảnh gửi Pi là VGA 640×480. Tham số ảnh mặc định chỉnh cho môi trường ngược sáng: `GAINCEILING_32X`, `AE_LEVEL=4` (OV3660 cho −5..5), `BRIGHTNESS=2`, `SATURATION=2`, `CONTRAST=1`, `SHARPNESS=2`, `DENOISE=3`, cân bằng trắng tự động, không hiệu ứng.
 
-### Giao diện TFT và nút vật lý
+Chỉnh thử khi đang chạy: `http://<ip-esp32>/cam?ae=..&bright=..&contrast=..&sat=..&sharp=..&denoise=..&quality=..` — và đọc/ghi thanh ghi cảm biến trực tiếp `/cam?reg=0x3a0f&val=0x60` (bỏ `val` để chỉ đọc).
 
-Giao diện “Đêm xanh · thẻ kết quả”, chữ tiếng Việt có dấu:
+### Cấu hình WiFi
 
-- **Màn chào:** “Xin chào!” và phát lời chào qua loa. SELECT để vào live.
-- **Live:** khung camera 320×240 bên trái; cột phải có thẻ **Kết quả** và **Ý nghĩa**;
-  footer hiện chế độ, chức năng SELECT và âm lượng.
-  - **AUTO:** giữ yên tay 2 giây (thanh đếm ngược dưới khung) rồi tự chụp và gửi Pi.
-  - **MANUAL:** giơ tay cố định vào khung rồi nhấn SELECT để chụp.
-- **Kết quả:** ảnh vừa chụp đứng yên, hiện số ngón và câu ý nghĩa, loa đọc câu đó;
-  8 giây sau (`AUTO_NEXT_ROUND_MS`) tự quay lại live.
+- **Khởi động:** thử mạng mặc định trong `secrets.h` **đầu tiên**, rồi các mạng đã lưu (12 giây mỗi mạng). Vào được thì màn chào hiện IP và `esp32-01.local`; mở `http://<ip>/` để xem/đổi WiFi và đặt IP máy chủ nhận diện.
+- **Không vào được mạng nào:** phát hotspot mở `AI-Camera-XXXX`, TFT có mã QR; vào hotspot thì trang cấu hình tự bật (hoặc `http://192.168.4.1/`).
+- **Mất WiFi khi đang chạy:** tự kết nối lại; quá 30 giây bật hotspot song song (SELECT để bật ngay). Có mạng lại thì hiện IP mới cạnh IP cũ 8 giây, hotspot tắt sau 20 giây.
+- **Đổi WiFi chủ động:** giữ BACK 3 giây ở màn chào, giữ BACK khi cấp điện, hoặc gõ `w` trên Serial.
+
+Lưu tối đa 5 mạng trong NVS (mạng mặc định của `secrets.h` không ghi vào NVS); nạp lại firmware không mất danh sách. Trang cấu hình không có mật khẩu: ai trong cùng LAN/hotspot đều đổi được.
+
+### Giao diện TFT và nút
+
+- **Màn chào:** “Xin chào!” + lời chào qua loa. SELECT để vào live.
+- **Live:** khung camera 320×240 bên trái, cột phải có thẻ **Kết quả** (nhãn ● LIVE) và **Ý nghĩa**, footer hiện chế độ/chức năng SELECT/âm lượng. Khởi động ở **MANUAL**.
+  - **MANUAL:** giơ tay vào khung rồi nhấn SELECT để chụp.
+  - **AUTO:** giữ yên tay **5 giây** rồi tự chụp và gửi.
+- **Kết quả:** ảnh vừa chụp đứng yên, số ngón và câu ý nghĩa, loa đọc câu; sau 8 giây (`AUTO_NEXT_ROUND_MS`) quay lại live, thẻ đổi thành “LẦN TRƯỚC”.
 
 | Nút | GPIO | Chức năng |
 | --- | --- | --- |
@@ -196,89 +197,67 @@ Giao diện “Đêm xanh · thẻ kết quả”, chữ tiếng Việt có dấ
 | SELECT1 | 21 | Bắt đầu · chụp (MANUAL) · chụp ngay (AUTO) · live tiếp |
 | DOWN1 | 3 | Tăng âm lượng |
 | UP1 | 14 | Giảm âm lượng |
+| DOWN1 + UP1 (giữ) | | Đồng bộ lại TFT khi màn trắng |
 
-Font (Noto Sans, SIL OFL) và lời chào được nhúng vào firmware bằng
-`python scripts/make_tft_assets.py`, tạo `fonts_vi.h` và `welcome_audio.h`.
-Đổi file lời chào: `python scripts/make_tft_assets.py --skip-fonts --wav <file.wav>`
-(WAV mono 16-bit, 8–48 kHz).
+Âm lượng được lưu trong NVS (`audio`: `vol`, `prev`) nên khởi động lại vẫn giữ.
 
-Camera OV3660 (theo bảng kết nối, `config.h`): `XCLK=15`, `SIOD=4`, `SIOC=5`,
-`Y9..Y2 = 16, 17, 18, 12, 10, 8, 9, 11`, `VSYNC=6`, `HREF=7`, `PCLK=13`,
-`PWDN=-1`, `RESET=-1`.
-ILI9488, MAX98357A/loa và 4 nút đã có mapping theo schematic; vẫn cần thử
-nghiệm phần cứng thực tế. INMP441 được để dự phòng; bài toán cử chỉ hiện không
-thu mic/ASR.
+Serial Monitor (115200): `b s + -` giả lập 4 nút, `i` in FPS và thời gian chụp/vẽ, `w` mở hotspot WiFi, `r` đồng bộ lại TFT.
 
-Auto gửi một JPEG sau khi đếm ngược; không ghi LittleFS/NVS cho từng mẫu chưa xác nhận. Chỉ lưu UUID Manual đã nhận vào Cloud để phục hồi sau reboot, mã kết quả đã tiêu thụ và ACK của kết quả cuối. Loa tự phát tối đa một lần mỗi UUID; mất điện đúng lúc phát có thể làm câu bị thiếu, dùng Replay khi cần.
+Font Noto Sans (SIL OFL) và lời chào nhúng vào firmware bằng `python scripts/make_tft_assets.py` (tạo `fonts_vi.h`, `welcome_audio.h`). Đổi lời chào: `python scripts/make_tft_assets.py --skip-fonts --wav <file.wav>` (WAV mono 16-bit, 8–48 kHz).
 
-Firmware tái sử dụng TLS socket, gộp báo trạng thái/đọc lệnh trong một RPC, giảm polling khi rảnh. Khi đang thu chuỗi 2 giây, không thực hiện TLS trên task đó. Nếu không có khung camera thì timeout và trả trạng thái lỗi, không kẹt vòng Auto mãi. Năm nút thực tế là Power/Next/Volume+/Volume-/Manual; lệnh Serial tương ứng là `p/n/+/-/m`.
-
-Với ESP32-S3 N16R8, chọn flash/PSRAM/partition theo tài liệu module. Kiểm tra OPI PSRAM với nhà cung cấp; nên dùng app partition đủ lớn. Các nhánh driver đã kiểm tra biên dịch không thay thế thử trên board thật.
+Auto gửi một JPEG sau khi đếm ngược, không ghi LittleFS/NVS cho mẫu chưa xác nhận. Chỉ lưu UUID Manual đã gửi lên Cloud (để phục hồi sau reboot), mã kết quả đã tiêu thụ và ACK cuối. Loa phát tối đa một lần mỗi UUID; dùng Replay khi cần. Firmware tái sử dụng TLS socket, gộp báo trạng thái/đọc lệnh trong một RPC, giảm polling khi rảnh, và timeout khi không có khung camera thay vì kẹt vòng Auto.
 
 ## Xác thực và ngrok
 
-API dashboard ảnh, kết quả, lịch sử và điều khiển yêu cầu `API_KEY`; endpoint ESP32 LAN dùng `LAN_API_KEY`. App từ chối khởi động khi mở ngoài loopback mà key rỗng. `/health` công khai chỉ trả trạng thái cơ bản; phiên bản và mã lỗi ở `/api/diagnostics` có xác thực.
+API dashboard yêu cầu `API_KEY`; endpoint ESP32 LAN dùng `LAN_API_KEY`. App từ chối khởi động khi mở ngoài loopback mà key rỗng. `/health` công khai chỉ trả trạng thái cơ bản; phiên bản và mã lỗi ở `/api/diagnostics` (có xác thực).
 
-Có thể thêm Basic Auth của ngrok bằng mẫu `project/examples/ngrok-traffic-policy.example.yml`. Tạo bản riêng, thay mật khẩu mẫu và dùng Traffic Policy của ngrok khi mở tunnel. Không dùng API key của Supabase làm mật khẩu đăng nhập web. Tham khảo [ngrok Basic Auth](https://ngrok.com/docs/gateway/traffic-policy/actions/basic-auth). Chính sách ngrok là cấu hình tùy chọn, chưa áp dụng vào tài khoản ngrok của bạn trong phiên này.
+Có thể thêm Basic Auth của ngrok bằng mẫu `project/examples/ngrok-traffic-policy.example.yml` (tạo bản riêng, đổi mật khẩu). Không dùng key Supabase làm mật khẩu web. Tham khảo [ngrok Basic Auth](https://ngrok.com/docs/gateway/traffic-policy/actions/basic-auth).
 
 ## Dọn dữ liệu Cloud
 
-Kết quả trên Supabase là dữ liệu để **thống kê**, nên được giữ tối đa trong giới hạn gói Free
-(500 MB database, 1 GB Storage; mỗi lần nhận diện ≈ 3,5 KB hàng kết quả + ≈ 35 KB ảnh chụp/ảnh màn hình):
+Kết quả trên Supabase là dữ liệu **thống kê**, nên được giữ tối đa trong giới hạn gói Free (500 MB database, 1 GB Storage; mỗi lần nhận diện ≈ 3,5 KB hàng + ≈ 35 KB ảnh chụp/ảnh màn hình):
 
-- **Hàng kết quả:** giữ 80.000 lần gần nhất (≈ 300–400 MB). Không còn giới hạn 50 hàng hay 7 ngày.
-- **Ảnh:** giữ ảnh của 24.000 lần gần nhất (≈ 850 MB). Lần cũ hơn chỉ bị xóa ảnh, **hàng kết quả vẫn giữ**
-  (đánh dấu `input.images_pruned=true`).
-- Mẫu Auto không được xác nhận (không phải kết quả) dọn sau 60 phút. Không xóa pending/processing hay clip giọng dùng chung.
+- **Hàng kết quả:** giữ 80.000 lần gần nhất (≈ 300–400 MB); vượt thì xóa hàng cũ nhất cùng file.
+- **Ảnh:** giữ ảnh của 24.000 lần gần nhất (≈ 850 MB). Lần cũ hơn chỉ bị xóa ảnh, **hàng vẫn giữ** (đánh dấu `input.images_pruned=true`).
+- Mẫu Auto không được xác nhận dọn sau 60 phút. Không xóa pending/processing hay clip giọng dùng chung.
 - Free project bị tạm dừng nếu 7 ngày không hoạt động; Pi chạy liên tục nên không bị.
 
-Thao tác xóa object dùng Storage API trước khi xóa hàng PostgreSQL; không xóa trực tiếp hàng storage bằng SQL.
-Các biến tùy chỉnh trong cấu hình Pi (lên gói Pro thì tăng hai số đầu):
+Xóa object luôn qua Storage API trước khi xóa hàng PostgreSQL. Biến cấu hình (lên gói Pro thì tăng hai số đầu):
 
 ```dotenv
 CLOUD_RETENTION_ENABLED=1
 CLOUD_KEEP_ROWS=80000
 CLOUD_KEEP_IMAGES=24000
-CLOUD_RETENTION_DAYS=0
+CLOUD_RETENTION_DAYS=0              # 0 = không giới hạn tuổi
 CLOUD_PROBE_RETENTION_MINUTES=60
 MAX_CROP_RETRIES=4
 ```
 
-WAV được dùng chung theo SHA-256 trong thư mục riêng của thiết bị; kết quả ESP32
-offline còn tạo một JPEG màn hình tiếng Việt trong outbox để gửi lại khi Cloud hồi
-phục. Ảnh hỏng/4xx được đánh dấu failed ngay; lỗi mạng/503 có retry và lease
-fencing. Bộ đếm polling tăng thời gian chờ lúc rảnh, được đánh thức khi có request
-web hoặc lệnh mới.
+WAV dùng chung theo SHA-256. Ảnh hỏng/4xx đánh dấu failed ngay; lỗi mạng/503 có retry và lease fencing. Polling giãn khi rảnh, được đánh thức khi có request web hoặc lệnh mới.
 
-## Tự kiểm tra trên Pi
+## Kiểm tra
 
 ```bash
 curl -s http://127.0.0.1:8000/health
 cd ~/ai-camera-release
-~/ai-camera/.venv/bin/python scripts/verify_cloud.py
+~/ai-camera/.venv/bin/python scripts/verify_cloud.py     # ghi data/validation/verify-cloud.json
 ~/ai-camera/.venv/bin/python scripts/diagnose_cloud.py
 sudo journalctl -u ai-camera -n 40 --no-pager
-```
 
-`verify_cloud.py` thử ảnh mẫu thật qua các route Cloud: tải ảnh, camera Manual, Auto một ảnh, WAV và ảnh lỗi. Kết quả ghi `data/validation/verify-cloud.json`. Camera trong script là dữ liệu ảnh mẫu mô phỏng, không chứng minh iPhone/ESP vật lý hoạt động.
-
-Tests có trong source:
-
-```bash
 ~/ai-camera/.venv/bin/python -m unittest discover -s tests/v6 -v
 ~/ai-camera/.venv/bin/python -m unittest discover -s tests -p test_counter.py -v
 ```
 
-JS: Node 22, `npm ci --ignore-scripts`, `npm test`. Có khóa phiên bản Prettier, cấu hình Ruff và workflow CI. Bài kiểm tra camera xác nhận đợi 2 giây tại thiết bị rồi gửi đúng một ảnh, kể cả khi Cloud cần thêm 3 giây. Xem `VALIDATION.md` cho kết quả thực chạy và giới hạn.
+`verify_cloud.py` thử ảnh mẫu thật qua các route Cloud (upload, Manual, Auto một ảnh, WAV, ảnh lỗi); camera trong script là dữ liệu mô phỏng, không chứng minh iPhone/ESP32 vật lý hoạt động.
 
-Kiểm thử trình duyệt tự động tùy chọn: cài `requirements-dev.txt`, mở một Chrome riêng với `--headless=new --remote-debugging-port=9237 --remote-allow-origins=* --autoplay-policy=no-user-gesture-required --user-data-dir=/tmp/ai-camera-qa about:blank`, rồi chạy `python tests/browser_cloud.py --cdp http://127.0.0.1:9237 --url http://127.0.0.1:8000/`. Không mở cổng debug ra Internet và đóng Chrome thử nghiệm sau khi xong. Script đọc API_KEY dashboard từ `.env`, kiểm tra upload/Auto/Manual, phát một lần, giao diện desktop/mobile và lưu ảnh chụp cùng báo cáo trong `data/browser-qa/`. Camera ở test này là video mô phỏng từ ảnh mẫu.
+JS: Node 22, `npm ci --ignore-scripts`, `npm test`. Có Prettier, Ruff và workflow CI (`.github/workflows/tests.yml`). Kiểm thử trình duyệt tùy chọn: `tests/browser_cloud.py` qua Chrome headless `--remote-debugging-port` (không mở cổng debug ra Internet). Xem `VALIDATION.md` cho kết quả thực chạy và giới hạn.
 
 ## Khôi phục
 
 ```bash
 sudo systemctl stop ai-camera
-~/ai-camera/.venv/bin/python ~/ai-camera-cloud-v6/install.py --rollback /home/lethinh/ai-camera-release/backups/cloud-v6-THOI_GIAN
+~/ai-camera/.venv/bin/python ~/ai-camera-cloud-v6/install.py --rollback ~/ai-camera-release/backups/cloud-v6-THOI_GIAN
 sudo systemctl start ai-camera
 ```
 
-Dùng đúng đường dẫn backup installer đã in. Rollback source không xóa dữ liệu Cloud và không đổi các key.
+Dùng đúng đường dẫn backup installer đã in. Rollback không xóa dữ liệu Cloud và không đổi key.
